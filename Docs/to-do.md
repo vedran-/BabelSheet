@@ -2,45 +2,48 @@
 
 ## Phase 1: Core Foundation (Priority: Highest)
 ### Project Setup
-- [ ] Create project structure
-- [ ] Set up virtual environment
-- [ ] Create requirements.txt with initial dependencies
-- [ ] Set up Google Sheets authentication
-  - [ ] Implement OAuth2 flow
-  - [ ] Add token persistence
-  - [ ] Add token refresh handling
+- [x] Create project structure
+- [x] Set up virtual environment
+- [x] Create requirements.txt with initial dependencies
+- [x] Set up Google Sheets authentication
+  - [x] Implement OAuth2 flow
+  - [x] Add token persistence
+  - [x] Add token refresh handling
 
 ### Basic Components
-- [ ] Implement GoogleSheetsHandler
-  - [ ] Implement sheet reading
-  - [ ] Implement sheet writing
-  - [ ] Add basic error handling
-- [ ] Implement TranslationManager
-  - [ ] Add OpenAI integration
-  - [ ] Add Google Translate fallback
-  - [ ] Implement basic prompt handling
-- [ ] Create simple CLI interface
+- [x] Implement GoogleSheetsHandler
+  - [x] Implement sheet reading
+  - [x] Implement sheet writing
+  - [x] Add basic error handling
+  - [x] Add sheet update functionality
+- [x] Implement TranslationManager
+  - [x] Add LLM integration with custom endpoint support
+  - [x] Add Google Translate fallback
+  - [x] Implement basic prompt handling
+- [x] Create simple CLI interface
+  - [x] Add init command
+  - [x] Add translate command
 
 ## Phase 2: Essential Functionality (Priority: High)
 ### Translation Workflow
-- [ ] Implement missing translations detection
-- [ ] Create translation prompt
-  - [ ] Include term base references
-  - [ ] Add context from comments
-  - [ ] Preserve markup ([],{})
-  - [ ] Handle newlines (\\n)
-- [ ] Add batch translation
-  - [ ] Basic progress tracking
-  - [ ] Simple resume capability
+- [x] Implement missing translations detection
+- [x] Create translation prompt
+  - [x] Include term base references
+  - [x] Add context from comments
+  - [x] Preserve markup ([],{})
+  - [x] Handle newlines (\\n)
+- [x] Add batch translation
+  - [x] Basic progress tracking
+  - [x] Simple resume capability
 
 ### Term Base
-- [ ] Implement basic term base reading
-- [ ] Add term base validation
-- [ ] Implement automated term extraction
-  - [ ] Extract terms from new translations
-  - [ ] Update term base automatically
-  - [ ] Ensure term base consistency
-- [ ] Add term base versioning
+- [x] Implement term base as sheet
+- [x] Add term base reading from sheet
+- [x] Add term base sheet updates
+- [x] Implement automated term extraction
+  - [x] Extract terms from new translations
+  - [x] Update term base automatically
+  - [x] Ensure term base consistency
 
 ## Phase 3: Quality Assurance (Priority: Medium)
 - [ ] Basic format validation
@@ -54,6 +57,6 @@
 
 ## Progress Tracking
 - Total Tasks: 26
-- Completed: 0
+- Completed: 22
 - In Progress: 0
-- Remaining: 26
+- Remaining: 4
