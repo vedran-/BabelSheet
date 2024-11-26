@@ -1,8 +1,6 @@
 from typing import Optional, List, Dict, Any
 from ..utils.llm_handler import LLMHandler
-from google.cloud import translate
 import pandas as pd
-import os
 import json
 from ..utils.qa_handler import QAHandler
 
@@ -11,8 +9,7 @@ class TranslationManager:
                  api_key: str, 
                  base_url: str = "https://api.openai.com/v1",
                  model: str = "gpt-4", 
-                 temperature: float = 0.3, 
-                 google_translate_fallback: bool = True,
+                 temperature: float = 0.3,
                  max_length: Optional[int] = None):
         """Initialize the Translation Manager."""
         # Initialize LLM handler
@@ -22,12 +19,6 @@ class TranslationManager:
             model=model,
             temperature=temperature
         )
-        
-        # Initialize Google Translate client if fallback is enabled
-        self.google_translate_fallback = google_translate_fallback
-        self.google_translate_client = None
-        if google_translate_fallback:
-            self.google_translate_client = translate.TranslationServiceClient()
             
         # Initialize QA handler
         self.qa_handler = QAHandler(max_length=max_length)
@@ -112,28 +103,6 @@ Translate the text maintaining all rules."""
                     print(f"- {issue}")
         
         return translation
-
-    def _google_translate_fallback(self, text: str, target_lang: str) -> str:
-        """Fallback to Google Translate."""
-        if not self.google_translate_client:
-            raise Exception("Google Translate client not initialized")
-            
-        try:
-            parent = f"projects/{os.getenv('GOOGLE_CLOUD_PROJECT')}"
-            response = self.google_translate_client.translate_text(
-                request={
-                    "parent": parent,
-                    "contents": [text],
-                    "mime_type": "text/plain",
-                    "source_language_code": "en",
-                    "target_language_code": target_lang,
-                }
-            )
-            
-            return response.translations[0].translated_text
-            
-        except Exception as e:
-            raise Exception(f"Google Translate fallback failed: {e}")
 
     async def batch_translate(self, texts: List[str], target_lang: str,
                             contexts: List[str] = None,

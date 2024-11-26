@@ -3,62 +3,55 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 import pickle
 import os
-from typing import Optional
+
+def get_credentials() -> Credentials:
+    """Get Google OAuth2 credentials."""
+    creds = None
+    token_file = 'config/token.pickle'
+    credentials_file = 'config/credentials.json'
+    scopes = [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive.readonly'
+    ]
+
+    if os.path.exists(token_file):
+        with open(token_file, 'rb') as token:
+            creds = pickle.load(token)
+
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(
+                credentials_file, scopes)
+            creds = flow.run_local_server(port=0)
+
+        with open(token_file, 'wb') as token:
+            pickle.dump(creds, token)
+
+    return creds
 
 class GoogleAuth:
-    def __init__(self, credentials_file: str, token_file: str, scopes: list[str]):
+    def __init__(self, credentials_file: str, token_file: str, scopes: list):
         self.credentials_file = credentials_file
         self.token_file = token_file
         self.scopes = scopes
-        self.credentials: Optional[Credentials] = None
 
     def authenticate(self) -> Credentials:
-        """Handles the complete authentication flow."""
-        self.credentials = self._load_credentials()
-        
-        if not self.credentials or not self.credentials.valid:
-            if self.credentials and self.credentials.expired and self.credentials.refresh_token:
-                self._refresh_credentials()
-            else:
-                self._new_authentication()
-            
-            self._save_credentials()
-        
-        return self.credentials
-
-    def _load_credentials(self) -> Optional[Credentials]:
-        """Load credentials from token file if it exists."""
+        creds = None
         if os.path.exists(self.token_file):
-            try:
-                with open(self.token_file, 'rb') as token:
-                    return pickle.load(token)
-            except Exception as e:
-                print(f"Error loading credentials: {e}")
-                if os.path.exists(self.token_file):
-                    os.remove(self.token_file)
-        return None
+            with open(self.token_file, 'rb') as token:
+                creds = pickle.load(token)
 
-    def _refresh_credentials(self) -> None:
-        """Refresh expired credentials."""
-        try:
-            self.credentials.refresh(Request())
-        except Exception as e:
-            print(f"Error refreshing credentials: {e}")
-            self._new_authentication()
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    self.credentials_file, self.scopes)
+                creds = flow.run_local_server(port=0)
 
-    def _new_authentication(self) -> None:
-        """Perform new authentication flow."""
-        try:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                self.credentials_file, self.scopes)
-            self.credentials = flow.run_local_server(port=0)
-        except Exception as e:
-            raise Exception(f"Authentication failed: {e}")
-
-    def _save_credentials(self) -> None:
-        """Save credentials to token file."""
-        try:
             with open(self.token_file, 'wb') as token:
-                pickle.dump(self.credentials, token)
-        except Exception as e:
-            print(f"Error saving credentials: {e}") 
+                pickle.dump(creds, token)
+
+        return creds 

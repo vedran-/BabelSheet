@@ -1,44 +1,114 @@
+import sys
 import asyncio
 import click
 import yaml
 import os
 from typing import Dict, Any
-from ..utils.auth import GoogleAuth
+from ..utils.auth import get_credentials
 from ..sheets.sheets_handler import GoogleSheetsHandler
 from ..translation.translation_manager import TranslationManager
 from ..term_base.term_base_handler import TermBaseHandler
+import argparse
+import logging
+import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 def load_config(config_path: str) -> Dict[str, Any]:
     """Load configuration from YAML file."""
     with open(config_path, 'r') as f:
         return yaml.safe_load(f)
 
-def validate_config(config: Dict[str, Any]) -> None:
+def validate_config(config):
     """Validate the configuration."""
-    required_keys = {
-        'google_sheets': ['credentials_file', 'token_file', 'scopes'],
-        'languages': ['source', 'target'],
+    # Define expected types and requirements for config values
+    validation_schema = {
+        'google_sheets': {
+            'credentials_file': str,
+            'token_file': str,
+            'scopes': list,
+            'spreadsheet_id': (str, type(None))  # Optional field
+        },
+        'languages': {
+            'source': str,
+            'target': list
+        },
         'term_base': {
             'sheet_name': str,
-            'columns': ['term', 'comment', 'translation_prefix']
+            'columns': {
+                'term': str,
+                'comment': str,
+                'translation_prefix': str
+            }
         },
-        'llm': ['model', 'temperature']
+        'context_columns': {
+            'patterns': list,
+            'ignore_case': bool
+        },
+        'llm': {
+            'api_url': str,
+            'model': str,
+            'temperature': (int, float)
+        },
+        'google_translate': {
+            'enabled': bool
+        }
     }
+
+    def validate_dict(config_section, schema, path=""):
+        for key, expected in schema.items():
+            current_path = f"{path}.{key}" if path else key
+            
+            if key not in config_section:
+                raise ValueError(f"Missing required config value: {current_path}")
+            
+            if isinstance(expected, dict):
+                if not isinstance(config_section[key], dict):
+                    raise TypeError(f"Invalid type for {current_path}. Expected dict")
+                validate_dict(config_section[key], expected, current_path)
+            else:
+                if not isinstance(config_section[key], expected if not isinstance(expected, tuple) else expected):
+                    raise TypeError(
+                        f"Invalid type for {current_path}. "
+                        f"Expected {expected}, got {type(config_section[key])}"
+                    )
+
+    validate_dict(config, validation_schema)
+
+def setup_logging(verbose_level: int):
+    """Set up logging with different verbosity levels.
     
-    for key, value in required_keys.items():
-        if key not in config:
-            raise ValueError(f"Missing required config section: {key}")
-        
-        if isinstance(value, list):
-            for subkey in value:
-                if subkey not in config[key]:
-                    raise ValueError(f"Missing required config key: {key}.{subkey}")
-        elif isinstance(value, dict):
-            for subkey, expected_type in value.items():
-                if subkey not in config[key]:
-                    raise ValueError(f"Missing required config key: {key}.{subkey}")
-                if expected_type is not None and not isinstance(config[key][subkey], expected_type):
-                    raise ValueError(f"Invalid type for {key}.{subkey}. Expected {expected_type}")
+    Level 0: INFO (default)
+    Level 1: DEBUG
+    Level 2: DEBUG + Data dumps
+    """
+    level = logging.INFO
+    if verbose_level >= 1:
+        level = logging.DEBUG
+    
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    # Set TRACE level for data dumps
+    if verbose_level >= 2:
+        logging.TRACE = 5  # Custom level below DEBUG
+        logging.addLevelName(logging.TRACE, 'TRACE')
+        def trace(self, message, *args, **kwargs):
+            if self.isEnabledFor(logging.TRACE):
+                self._log(logging.TRACE, message, args, **kwargs)
+        logging.Logger.trace = trace
+
+def async_command(f):
+    """Decorator to run async click commands."""
+    def wrapper(*args, **kwargs):
+        try:
+            return asyncio.run(f(*args, **kwargs))
+        except Exception as e:
+            logger.error(f"Error during async execution: {str(e)}")
+            sys.exit(1)
+    return wrapper
 
 @click.group()
 @click.option('--config', default='config/config.yaml', help='Path to configuration file')
@@ -49,126 +119,129 @@ def cli(ctx, config):
     ctx.obj['config'] = load_config(config)
     validate_config(ctx.obj['config'])
 
-@cli.command()
-@click.option('--sheet-id', help='Google Sheet ID to process')
-@click.option('--target-langs', help='Comma-separated list of target languages')
-@click.option('--force', is_flag=True, help='Force add missing language columns without confirmation')
-@click.option('--dry-run', is_flag=True, help='Show what would be done without making any changes')
+@cli.command(name='translate')
+@click.option(
+    '--target-langs',
+    '-t',
+    required=True,
+    help='Comma-separated list of target languages (e.g., "fr,es,de")'
+)
+@click.option(
+    '--sheet-id',
+    '-s',
+    required=True,
+    help='Google Sheet ID to process'
+)
+@click.option(
+    '--verbose',
+    '-v',
+    count=True,
+    help='Increase verbosity (use -v for info, -vv for debug, -vvv for trace)'
+)
+@click.option(
+    '--force',
+    '-f',
+    is_flag=True,
+    help='Force processing without confirmation prompts'
+)
 @click.pass_context
-def translate(ctx, sheet_id: str, target_langs: str, force: bool, dry_run: bool):
-    """Translate missing texts in the specified Google Sheet."""
-    asyncio.run(_translate(ctx, sheet_id, target_langs, force, dry_run))
+def translate_command(ctx, target_langs, sheet_id, verbose, force):
+    """Translate missing entries in the specified Google Sheet."""
+    return async_command(translate)(ctx, target_langs, sheet_id, verbose, force)
 
-async def _translate(ctx, sheet_id: str, target_langs: str, force: bool, dry_run: bool):
-    """Async implementation of translate command."""
-    if dry_run:
-        click.echo("\nDRY RUN MODE - No changes will be made\n")
+async def translate(ctx, target_langs, sheet_id, verbose, force):
+    """Translate missing entries in the specified Google Sheet."""
+    setup_logging(verbose)
+    logger = logging.getLogger(__name__)
     
-    config = ctx.obj['config']
-    
-    # Initialize components
-    auth = GoogleAuth(
-        credentials_file=config['google_sheets']['credentials_file'],
-        token_file=config['google_sheets']['token_file'],
-        scopes=config['google_sheets']['scopes']
-    )
-    
-    credentials = auth.authenticate()
-    
-    sheets_handler = GoogleSheetsHandler(credentials)
-    sheets_handler.set_spreadsheet(sheet_id or config['google_sheets']['spreadsheet_id'])
-    
-    # Initialize term base with sheet handler
-    term_base = TermBaseHandler(
-        sheets_handler=sheets_handler,
-        sheet_name=config['term_base']['sheet_name'],
-        term_column=config['term_base']['columns']['term'],
-        comment_column=config['term_base']['columns']['comment'],
-        translation_prefix=config['term_base']['columns']['translation_prefix']
-    )
-    
-    translation_manager = TranslationManager(
-        api_key=os.getenv('LLM_API_KEY'),
-        base_url=config['llm'].get('api_url', 'https://api.openai.com/v1'),
-        model=config['llm']['model'],
-        temperature=config['llm']['temperature']
-    )
-    
-    # Get target languages
-    target_language_list = (target_langs.split(',') if target_langs 
-                          else config['languages']['target'])
-    
-    # Process each sheet
-    for sheet_name in sheets_handler.get_all_sheets():
-        if sheet_name == config['term_base']['sheet_name']:
-            continue  # Skip the term base sheet itself
-            
-        click.echo(f"\nProcessing sheet: {sheet_name}")
+    try:
+        # Split target languages if provided as comma-separated string
+        langs = [lang.strip() for lang in target_langs.split(',')]
         
-        # Ensure language columns exist
-        sheets_handler.ensure_language_columns(sheet_name, target_language_list, force=force, dry_run=dry_run)
+        # Initialize handlers
+        creds = get_credentials()
+        sheets_handler = GoogleSheetsHandler(creds)
+        sheets_handler.set_spreadsheet(sheet_id)
         
-        # Read sheet data
-        df = sheets_handler.read_sheet(sheet_name)
-        
-        # Detect missing translations
-        missing = translation_manager.detect_missing_translations(
-            df, 
-            source_lang=config['languages']['source'],
-            target_langs=target_language_list
+        # Initialize translation manager
+        translation_manager = TranslationManager(
+            api_key=ctx.obj['config']['llm']['api_key'],
+            base_url=ctx.obj['config']['llm']['api_url'],
+            model=ctx.obj['config']['llm']['model'],
+            temperature=ctx.obj['config']['llm']['temperature']
         )
         
-        # Process each language
-        for lang in target_language_list:
-            if lang not in missing or not missing[lang]:
-                click.echo(f"No missing translations for {lang}")
+        # Initialize term base handler
+        term_base_handler = TermBaseHandler(sheets_handler)
+        term_base = term_base_handler.load_term_base()
+        
+        # Process each sheet
+        sheet_names = sheets_handler.get_all_sheets()
+        for sheet_name in sheet_names:
+            logger.info(f"\nProcessing sheet: {sheet_name}")
+            
+            # Skip term base sheet
+            if sheet_name == ctx.obj['config']['term_base']['sheet_name']:
                 continue
-                
-            click.echo(f"\nWould translate {len(missing[lang])} texts to {lang}..." if dry_run else f"\nTranslating {len(missing[lang])} texts to {lang}...")
             
-            # Get term base for this language
-            terms = term_base.get_terms_for_language(lang)
+            # First ensure all required language columns exist
+            try:
+                sheets_handler.ensure_language_columns(sheet_name, langs, force=force)
+            except ValueError as e:
+                logger.error(f"Error: {str(e)}")
+                continue
             
-            # Process each missing translation
-            updates = {}
-            for idx in missing[lang]:
-                source_text = df.iloc[idx][config['languages']['source']]
+            # Get sheet data as DataFrame
+            df = sheets_handler.get_sheet_as_dataframe(sheet_name)
+            
+            # Detect missing translations
+            missing = translation_manager.detect_missing_translations(
+                df=df,
+                source_lang=ctx.obj['config']['languages']['source'],
+                target_langs=langs
+            )
+            
+            # Process translations for each language
+            for lang, missing_indices in missing.items():
+                if not missing_indices:
+                    logger.info(f"No missing translations for {lang}")
+                    continue
                 
-                # Get combined context from all matching columns
-                context = sheets_handler.get_context_from_row(
-                    df.iloc[idx],
-                    config['context_columns']['patterns'],
-                    config['context_columns'].get('ignore_case', True)
+                logger.info(f"Translating {len(missing_indices)} entries to {lang}")
+                
+                # Get texts and contexts for translation
+                texts = df.loc[missing_indices, ctx.obj['config']['languages']['source']].tolist()
+                contexts = []
+                
+                # Get contexts from configured context columns if they exist
+                for idx in missing_indices:
+                    context_parts = []
+                    for pattern in ctx.obj['config']['context_columns']['patterns']:
+                        matching_cols = [col for col in df.columns if pattern.lower() in col.lower()]
+                        for col in matching_cols:
+                            if pd.notna(df.loc[idx, col]):
+                                context_parts.append(str(df.loc[idx, col]))
+                    contexts.append(" | ".join(context_parts))
+                
+                # Translate batch
+                translations = await translation_manager.batch_translate(
+                    texts=texts,
+                    target_lang=lang,
+                    contexts=contexts,
+                    term_base=term_base
                 )
                 
-                try:
-                    if not dry_run:
-                        translation = await translation_manager.translate_text(
-                            text=source_text,
-                            target_lang=lang,
-                            context=context,
-                            term_base=terms,
-                            term_base_handler=term_base
-                        )
-                    else:
-                        click.echo(f"Would translate [{idx + 2}]: {source_text[:30]}...")
-                        continue
-                    
-                    # Prepare update
-                    cell_range = f"{chr(65 + df.columns.get_loc(lang))}{idx + 2}"
-                    updates[cell_range] = translation
-                    
-                    click.echo(f"Translated [{idx + 2}]: {source_text[:30]}... → {translation[:30]}...")
-                    
-                except Exception as e:
-                    click.echo(f"Error translating row {idx + 2}: {e}")
-            
-            # Batch update the sheet
-            if updates and not dry_run:
-                sheets_handler.write_translations(sheet_name, updates)
-                click.echo(f"Updated {len(updates)} translations in {lang}")
-            elif updates:
-                click.echo(f"Would update {len(updates)} translations in {lang}")
+                # Update DataFrame with translations
+                df.loc[missing_indices, lang] = translations
+                
+                # Update sheet with new translations
+                sheets_handler.update_sheet_from_dataframe(sheet_name, df)
+                
+                logger.info(f"Completed translations for {lang}")
+                
+    except Exception as e:
+        logger.error(f"Error during translation: {str(e)}")
+        sys.exit(1)
 
 @cli.command()
 @click.pass_context
