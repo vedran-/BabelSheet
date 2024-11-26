@@ -246,42 +246,25 @@ class GoogleSheetsHandler:
         self.logger.debug(f"Missing translations: {missing_translations}")
         return missing_translations
 
-    def ensure_language_columns(self, sheet_name: str, languages: List[str], force: bool = False, dry_run: bool = False) -> None:
+    def ensure_language_columns(self, sheet_name: str, langs: List[str], force: bool = False) -> bool:
         """Ensure all required language columns exist in the sheet."""
-        # Use cached data if available
         df = self._get_sheet_data(sheet_name)
-        existing_columns = df.columns.tolist()
-        
-        # Find missing language columns
-        missing_langs = [lang for lang in languages if lang not in existing_columns]
+        missing_langs = [lang for lang in langs if lang not in df.columns]
+        columns_added = False
         
         if missing_langs:
-            # Show warning
-            print(f"\nWARNING: The following language columns are missing in sheet '{sheet_name}':")
+            logger.warning(f"\nWARNING: The following language columns are missing in sheet '{sheet_name}':")
             for lang in missing_langs:
-                print(f"  - {lang}")
-            
-            if not force and not dry_run:
-                response = input("\nWould you like to add these columns? [Y/n]: ")
-                if response.lower() not in ['', 'y', 'yes']:
-                    raise ValueError(f"Cannot proceed without required language columns: {', '.join(missing_langs)}")
-            
-            if dry_run:
-                print("\nWould add the following columns:")
-                for lang in missing_langs:
-                    print(f"  - {lang}")
-                return
-            
-            # Add new columns to the DataFrame
-            for lang in missing_langs:
-                df[lang] = ''
-                print(f"Added column: {lang}")
-            
-            # Update the sheet with new columns
-            self.update_sheet(sheet_name, df)
-            # Update cache with new columns
-            self._sheet_cache[sheet_name] = df
-            print(f"\nSuccessfully added {len(missing_langs)} new language column(s)")
+                logger.warning(f"  - {lang}")
+                df[lang] = pd.NA
+                logger.info(f"Added column: {lang}")
+                columns_added = True
+                
+            if columns_added:
+                logger.info(f"\nSuccessfully added {len(missing_langs)} new language column(s)")
+                self.update_sheet_from_dataframe(sheet_name, df)
+                
+        return columns_added
 
     def get_sheet_as_dataframe(self, sheet_name: str) -> pd.DataFrame:
         """Read sheet data and return as pandas DataFrame."""

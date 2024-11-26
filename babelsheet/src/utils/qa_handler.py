@@ -125,35 +125,42 @@ class QAHandler:
             f"1. Semantic accuracy (does it convey the same meaning?)\n"
             f"2. Cultural appropriateness\n"
             f"3. Natural flow and readability\n"
-            f"4. Consistency in tone and style\n\n"
-            f"Respond in the following format:\n"
-            f"If the translation is perfect: 'TRANSLATION_OK'\n"
-            f"If there are issues, list each issue on a new line starting with '- '\n"
-            f"Be concise but specific in describing issues."
+            f"4. Consistency in tone and style"
         )
+
+        validation_schema = {
+            "type": "object",
+            "properties": {
+                "is_valid": {
+                    "type": "boolean",
+                    "description": "Whether the translation is valid"
+                },
+                "issues": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "List of identified issues"
+                }
+            },
+            "required": ["is_valid", "issues"]
+        }
         
         try:
-            response = await self.llm_handler.generate_completion([
-                {"role": "system", "content": "You are a professional translation validator."},
-                {"role": "user", "content": prompt}
-            ])
+            response = await self.llm_handler.generate_completion(
+                messages=[
+                    {"role": "system", "content": "You are a professional translation validator."},
+                    {"role": "user", "content": prompt}
+                ],
+                json_schema=validation_schema
+            )
             
-            completion_text = self.llm_handler.extract_completion_text(response)
+            result = self.llm_handler.extract_structured_response(response)
             
-            if not completion_text or completion_text.isspace():
-                return ["LLM validation failed: Empty response"]
-                
-            if "TRANSLATION_OK" in completion_text:
+            if result["is_valid"]:
                 return []
-                
-            # Extract issues (lines starting with '- ')
-            issues = [
-                line[2:].strip() 
-                for line in completion_text.split('\n') 
-                if line.strip().startswith('- ')
-            ]
             
-            return [f"LLM found issue: {issue}" for issue in issues] if issues else ["LLM validation failed: Unexpected response format"]
+            return [f"LLM found issue: {issue}" for issue in result["issues"]]
             
         except Exception as e:
             return [f"LLM validation failed: {str(e)}"]

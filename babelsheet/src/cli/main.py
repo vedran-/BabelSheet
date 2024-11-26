@@ -3,7 +3,7 @@ import asyncio
 import click
 import yaml
 import os
-from typing import Dict, Any
+from typing import Dict, Any, List
 from ..utils.auth import get_credentials
 from ..sheets.sheets_handler import GoogleSheetsHandler
 from ..translation.translation_manager import TranslationManager
@@ -196,15 +196,23 @@ async def translate(ctx, target_langs, sheet_id, verbose, force):
             if sheet_name == ctx.obj['config']['term_base']['sheet_name']:
                 continue
             
+            # Get initial sheet data
+            df = sheets_handler._get_sheet_data(sheet_name)
+            
             # First ensure all required language columns exist
+            columns_added = False
             try:
-                sheets_handler.ensure_language_columns(sheet_name, langs, force=force)
+                columns_added = sheets_handler.ensure_language_columns(sheet_name, langs, force=force)
             except ValueError as e:
                 logger.error(f"Error: {str(e)}")
                 continue
-            
-            # Use cached version of the sheet
-            df = sheets_handler._get_sheet_data(sheet_name)
+                
+            # If columns were added, refresh the sheet data to get the new structure
+            if columns_added:
+                # Clear the cache to force a fresh fetch
+                sheets_handler._sheet_cache.pop(sheet_name, None)
+                # Get fresh data with new columns
+                df = sheets_handler.read_sheet(sheet_name)
             
             # Detect missing translations
             missing = translation_manager.detect_missing_translations(
@@ -246,7 +254,7 @@ async def translate(ctx, target_langs, sheet_id, verbose, force):
                 # Update DataFrame with translations
                 df.loc[missing_indices, lang] = translations
                 
-                # Update sheet with new translations using cached DataFrame
+                # Update sheet with new translations
                 sheets_handler.update_sheet_from_dataframe(sheet_name, df)
                 # Update cache with new translations
                 sheets_handler._sheet_cache[sheet_name] = df
