@@ -282,3 +282,29 @@ class GoogleSheetsHandler:
             # Update cache with new columns
             self._sheet_cache[sheet_name] = df
             print(f"\nSuccessfully added {len(missing_langs)} new language column(s)")
+
+    def get_sheet_as_dataframe(self, sheet_name: str) -> pd.DataFrame:
+        """Read sheet data and return as pandas DataFrame."""
+        # Use cached version if available
+        return self._get_sheet_data(sheet_name)
+        
+    def update_sheet_from_dataframe(self, sheet_name: str, df: pd.DataFrame) -> None:
+        """Update sheet with data from DataFrame."""
+        if not self.current_spreadsheet_id:
+            raise ValueError("Spreadsheet ID not set")
+            
+        # Convert DataFrame to values list
+        headers = df.columns.tolist()
+        values = [headers] + df.fillna('').values.tolist()
+        
+        body = {
+            'values': values
+        }
+        
+        range_name = f"{sheet_name}"
+        self.service.spreadsheets().values().update(
+            spreadsheetId=self.current_spreadsheet_id,
+            range=range_name,
+            valueInputOption='RAW',
+            body=body
+        ).execute()

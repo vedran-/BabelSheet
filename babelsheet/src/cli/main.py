@@ -19,7 +19,7 @@ def load_config(config_path: str) -> Dict[str, Any]:
     with open(config_path, 'r') as f:
         return yaml.safe_load(f)
 
-def validate_config(config):
+def validate_config(config, sheet_id_from_cli=None):
     """Validate the configuration."""
     # Define expected types and requirements for config values
     validation_schema = {
@@ -49,9 +49,6 @@ def validate_config(config):
             'api_url': str,
             'model': str,
             'temperature': (int, float)
-        },
-        'google_translate': {
-            'enabled': bool
         }
     }
 
@@ -59,8 +56,15 @@ def validate_config(config):
         for key, expected in schema.items():
             current_path = f"{path}.{key}" if path else key
             
+            # Special handling for spreadsheet_id
+            if current_path == "google_sheets.spreadsheet_id" and sheet_id_from_cli is not None:
+                continue
+                
             if key not in config_section:
-                raise ValueError(f"Missing required config value: {current_path}")
+                if current_path == "google_sheets.spreadsheet_id":
+                    config_section[key] = None  # Set default to None for spreadsheet_id
+                else:
+                    raise ValueError(f"Missing required config value: {current_path}")
             
             if isinstance(expected, dict):
                 if not isinstance(config_section[key], dict):
@@ -117,7 +121,6 @@ def cli(ctx, config):
     """BabelSheet - Automated translation tool for Google Sheets."""
     ctx.ensure_object(dict)
     ctx.obj['config'] = load_config(config)
-    validate_config(ctx.obj['config'])
 
 @cli.command(name='translate')
 @click.option(
@@ -129,7 +132,7 @@ def cli(ctx, config):
 @click.option(
     '--sheet-id',
     '-s',
-    required=True,
+    required=False,  # Made optional since it could be in config
     help='Google Sheet ID to process'
 )
 @click.option(
@@ -147,6 +150,17 @@ def cli(ctx, config):
 @click.pass_context
 def translate_command(ctx, target_langs, sheet_id, verbose, force):
     """Translate missing entries in the specified Google Sheet."""
+    # Validate config with sheet_id from CLI
+    validate_config(ctx.obj['config'], sheet_id)
+    
+    # Update config with CLI sheet_id if provided
+    if sheet_id:
+        ctx.obj['config']['google_sheets']['spreadsheet_id'] = sheet_id
+    
+    # Ensure we have a sheet_id from somewhere
+    if not ctx.obj['config']['google_sheets']['spreadsheet_id']:
+        raise click.UsageError("Spreadsheet ID must be provided either in config or via --sheet-id option")
+    
     return async_command(translate)(ctx, target_langs, sheet_id, verbose, force)
 
 async def translate(ctx, target_langs, sheet_id, verbose, force):
@@ -171,8 +185,11 @@ async def translate(ctx, target_langs, sheet_id, verbose, force):
             temperature=ctx.obj['config']['llm']['temperature']
         )
         
-        # Initialize term base handler
-        term_base_handler = TermBaseHandler(sheets_handler)
+        # Initialize term base handler with sheet name from config
+        term_base_handler = TermBaseHandler(
+            sheets_handler=sheets_handler,
+            sheet_name=ctx.obj['config']['term_base']['sheet_name']
+        )
         term_base = term_base_handler.load_term_base()
         
         # Process each sheet
@@ -191,8 +208,8 @@ async def translate(ctx, target_langs, sheet_id, verbose, force):
                 logger.error(f"Error: {str(e)}")
                 continue
             
-            # Get sheet data as DataFrame
-            df = sheets_handler.get_sheet_as_dataframe(sheet_name)
+            # Use cached version of the sheet
+            df = sheets_handler._get_sheet_data(sheet_name)
             
             # Detect missing translations
             missing = translation_manager.detect_missing_translations(
@@ -234,8 +251,10 @@ async def translate(ctx, target_langs, sheet_id, verbose, force):
                 # Update DataFrame with translations
                 df.loc[missing_indices, lang] = translations
                 
-                # Update sheet with new translations
+                # Update sheet with new translations using cached DataFrame
                 sheets_handler.update_sheet_from_dataframe(sheet_name, df)
+                # Update cache with new translations
+                sheets_handler._sheet_cache[sheet_name] = df
                 
                 logger.info(f"Completed translations for {lang}")
                 

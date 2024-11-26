@@ -3,24 +3,12 @@ import pandas as pd
 from ..sheets.sheets_handler import GoogleSheetsHandler
 
 class TermBaseHandler:
-    def __init__(self, sheets_handler: GoogleSheetsHandler, sheet_name: str,
-                 term_column: str = "EN TERM",
-                 comment_column: str = "COMMENT",
-                 translation_prefix: str = "TRANSLATION_"):
-        """Initialize the Term Base Handler.
-        
-        Args:
-            sheets_handler: Initialized GoogleSheetsHandler
-            sheet_name: Name of the sheet containing term base
-            term_column: Name of the column containing English terms
-            comment_column: Name of the column containing comments
-            translation_prefix: Prefix for translation columns
-        """
+    def __init__(self, sheets_handler: GoogleSheetsHandler, sheet_name: str):
         self.sheets_handler = sheets_handler
         self.sheet_name = sheet_name
-        self.term_column = term_column
-        self.comment_column = comment_column
-        self.translation_prefix = translation_prefix
+        self.term_column = "EN TERM"
+        self.comment_column = "COMMENT"
+        self.translation_prefix = "TRANSLATION_"
         self.term_base: Dict[str, Dict[str, str]] = {}
         self.load_term_base()
         

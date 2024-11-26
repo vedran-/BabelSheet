@@ -71,7 +71,16 @@ Translate the text maintaining all rules."""
                            context: str = "", term_base: Dict[str, str] = None,
                            term_base_handler = None) -> str:
         """Translate text and validate the translation."""
-        translation = await super().translate_text(text, target_lang, context, term_base)
+        # Create translation prompt
+        prompt = self.create_translation_prompt(text, context, term_base, target_lang)
+        
+        # Get translation from LLM
+        response = await self.llm_handler.generate_completion([
+            {"role": "system", "content": "You are a professional translator."},
+            {"role": "user", "content": prompt}
+        ])
+        
+        translation = self.llm_handler.extract_completion_text(response)
         
         # Validate translation
         issues = self.qa_handler.validate_translation(text, translation, term_base)
@@ -83,7 +92,6 @@ Translate the text maintaining all rules."""
                 print(f"- {issue}")
             
             # Try one more time with issues in the prompt
-            prompt = self.create_translation_prompt(text, context, term_base, target_lang)
             prompt += "\n\nPrevious translation had these issues:\n"
             prompt += "\n".join(f"- {issue}" for issue in issues)
             prompt += "\nPlease provide a corrected translation."
