@@ -177,13 +177,8 @@ async def translate(ctx, target_langs, sheet_id, verbose, force):
         sheets_handler = GoogleSheetsHandler(creds)
         sheets_handler.set_spreadsheet(sheet_id)
         
-        # Initialize translation manager
-        translation_manager = TranslationManager(
-            api_key=ctx.obj['config']['llm']['api_key'],
-            base_url=ctx.obj['config']['llm']['api_url'],
-            model=ctx.obj['config']['llm']['model'],
-            temperature=ctx.obj['config']['llm']['temperature']
-        )
+        # Initialize TranslationManager with the config
+        translation_manager = TranslationManager(ctx.obj['config'])
         
         # Initialize term base handler with sheet name from config
         term_base_handler = TermBaseHandler(

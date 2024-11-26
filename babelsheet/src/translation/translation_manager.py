@@ -1,27 +1,27 @@
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from ..utils.llm_handler import LLMHandler
 import pandas as pd
 import json
 from ..utils.qa_handler import QAHandler
 
 class TranslationManager:
-    def __init__(self, 
-                 api_key: str, 
-                 base_url: str = "https://api.openai.com/v1",
-                 model: str = "gpt-4", 
-                 temperature: float = 0.3,
-                 max_length: Optional[int] = None):
-        """Initialize the Translation Manager."""
-        # Initialize LLM handler
+    def __init__(self, config: Dict):
+        self.config = config
+        llm_config = config.get('llm', {})
+        
+        # Initialize LLM Handler with correct parameters from config
         self.llm_handler = LLMHandler(
-            api_key=api_key,
-            base_url=base_url,
-            model=model,
-            temperature=temperature
+            api_key=llm_config.get('api_key'),
+            base_url=llm_config.get('api_url', "https://api.openai.com/v1"),
+            model=llm_config.get('model', 'gpt-4'),
+            temperature=llm_config.get('temperature', 0.3)
         )
-            
-        # Initialize QA handler
-        self.qa_handler = QAHandler(max_length=max_length)
+        
+        # Initialize QA Handler with LLM Handler
+        self.qa_handler = QAHandler(
+            max_length=config.get('max_length'),
+            llm_handler=self.llm_handler
+        )
         
     def detect_missing_translations(self, df: pd.DataFrame, 
                                   source_lang: str = 'en',
@@ -67,50 +67,28 @@ Rules:
 Translate the text maintaining all rules."""
         return prompt
 
-    async def translate_text(self, text: str, target_lang: str, 
-                           context: str = "", term_base: Dict[str, str] = None,
-                           term_base_handler = None) -> str:
+    async def translate_text(self, source_text: str, source_lang: str, target_lang: str, context: str = "", term_base: Dict[str, str] = None) -> Tuple[str, List[str]]:
         """Translate text and validate the translation."""
-        # Create translation prompt
-        prompt = self.create_translation_prompt(text, context, term_base, target_lang)
+        # Create translation prompt with context
+        prompt = self.create_translation_prompt(source_text, context, term_base or {}, target_lang)
         
-        # Get translation from LLM
+        # Use generate_completion instead of generate_text
         response = await self.llm_handler.generate_completion([
-            {"role": "system", "content": "You are a professional translator."},
+            {"role": "system", "content": f"You are a professional translator for {target_lang}."},
             {"role": "user", "content": prompt}
         ])
         
-        translation = self.llm_handler.extract_completion_text(response)
+        translated_text = self.llm_handler.extract_completion_text(response)
         
-        # Validate translation
-        issues = self.qa_handler.validate_translation(text, translation, term_base)
+        # Validate the translation
+        issues = await self.qa_handler.validate_translation(
+            source_text=source_text,
+            translated_text=translated_text,
+            term_base=term_base,
+            skip_llm_on_issues=False
+        )
         
-        if issues:
-            # Log issues
-            print(f"QA issues found in translation:")
-            for issue in issues:
-                print(f"- {issue}")
-            
-            # Try one more time with issues in the prompt
-            prompt += "\n\nPrevious translation had these issues:\n"
-            prompt += "\n".join(f"- {issue}" for issue in issues)
-            prompt += "\nPlease provide a corrected translation."
-            
-            response = await self.llm_handler.generate_completion([
-                {"role": "system", "content": "You are a professional translator."},
-                {"role": "user", "content": prompt}
-            ])
-            
-            translation = self.llm_handler.extract_completion_text(response)
-            
-            # Validate again
-            issues = self.qa_handler.validate_translation(text, translation, term_base)
-            if issues:
-                print("Warning: Translation still has QA issues:")
-                for issue in issues:
-                    print(f"- {issue}")
-        
-        return translation
+        return translated_text, issues
 
     async def batch_translate(self, texts: List[str], target_lang: str,
                             contexts: List[str] = None,
@@ -124,10 +102,17 @@ Translate the text maintaining all rules."""
             
         translations = []
         for text, context in zip(texts, contexts):
-            translation = await self.translate_text(text, target_lang, context, term_base)
+            # Updated to match new translate_text signature
+            translation, _ = await self.translate_text(
+                source_text=text,
+                source_lang=self.config['languages']['source'],
+                target_lang=target_lang,
+                context=context,
+                term_base=term_base
+            )
             translations.append(translation)
             
-        return translations 
+        return translations
 
     async def extract_terms(self, text: str, context: str, target_lang: str) -> Dict[str, Dict[str, str]]:
         """Extract potential terms from translated text."""
@@ -161,3 +146,24 @@ If no terms found, return {{"terms": {{}}}}"""
         except Exception as e:
             print(f"Term extraction failed: {e}")
             return {}
+
+    async def process_translations(self, translations: List[Dict]) -> List[Dict]:
+        """Process a batch of translations with validation."""
+        results = []
+        for item in translations:
+            translated_text, issues = await self.translate_text(
+                item['source_text'],
+                item['source_lang'],
+                item['target_lang']
+            )
+            
+            results.append({
+                'source_text': item['source_text'],
+                'translated_text': translated_text,
+                'source_lang': item['source_lang'],
+                'target_lang': item['target_lang'],
+                'validation_issues': issues,
+                'passed_validation': len(issues) == 0
+            })
+            
+        return results
