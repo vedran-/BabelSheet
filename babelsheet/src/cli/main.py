@@ -13,6 +13,33 @@ def load_config(config_path: str) -> Dict[str, Any]:
     with open(config_path, 'r') as f:
         return yaml.safe_load(f)
 
+def validate_config(config: Dict[str, Any]) -> None:
+    """Validate the configuration."""
+    required_keys = {
+        'google_sheets': ['credentials_file', 'token_file', 'scopes'],
+        'languages': ['source', 'target'],
+        'term_base': {
+            'sheet_name': str,
+            'columns': ['term', 'comment', 'translation_prefix']
+        },
+        'llm': ['model', 'temperature']
+    }
+    
+    for key, value in required_keys.items():
+        if key not in config:
+            raise ValueError(f"Missing required config section: {key}")
+        
+        if isinstance(value, list):
+            for subkey in value:
+                if subkey not in config[key]:
+                    raise ValueError(f"Missing required config key: {key}.{subkey}")
+        elif isinstance(value, dict):
+            for subkey, expected_type in value.items():
+                if subkey not in config[key]:
+                    raise ValueError(f"Missing required config key: {key}.{subkey}")
+                if expected_type is not None and not isinstance(config[key][subkey], expected_type):
+                    raise ValueError(f"Invalid type for {key}.{subkey}. Expected {expected_type}")
+
 @click.group()
 @click.option('--config', default='config/config.yaml', help='Path to configuration file')
 @click.pass_context
@@ -20,6 +47,7 @@ def cli(ctx, config):
     """BabelSheet - Automated translation tool for Google Sheets."""
     ctx.ensure_object(dict)
     ctx.obj['config'] = load_config(config)
+    validate_config(ctx.obj['config'])
 
 @cli.command()
 @click.option('--sheet-id', help='Google Sheet ID to process')
@@ -27,8 +55,12 @@ def cli(ctx, config):
 @click.option('--force', is_flag=True, help='Force add missing language columns without confirmation')
 @click.option('--dry-run', is_flag=True, help='Show what would be done without making any changes')
 @click.pass_context
-async def translate(ctx, sheet_id: str, target_langs: str, force: bool, dry_run: bool):
+def translate(ctx, sheet_id: str, target_langs: str, force: bool, dry_run: bool):
     """Translate missing texts in the specified Google Sheet."""
+    asyncio.run(_translate(ctx, sheet_id, target_langs, force, dry_run))
+
+async def _translate(ctx, sheet_id: str, target_langs: str, force: bool, dry_run: bool):
+    """Async implementation of translate command."""
     if dry_run:
         click.echo("\nDRY RUN MODE - No changes will be made\n")
     
