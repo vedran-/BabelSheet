@@ -24,6 +24,23 @@ class GoogleSheetsHandler:
 
         return [sheet['properties']['title'] for sheet in result.get('sheets', [])]
 
+    def get_context_from_row(self, row: pd.Series, context_patterns: List[str], ignore_case: bool = True) -> str:
+        """Extract context from all matching columns in a row."""
+        contexts = []
+        
+        for column in row.index:
+            # Skip empty values
+            if pd.isna(row[column]):
+                continue
+            
+            # Check if column matches any context pattern
+            column_name = column.lower() if ignore_case else column
+            if any(pattern.lower() in column_name if ignore_case else pattern in column_name 
+                   for pattern in context_patterns):
+                contexts.append(f"{column}: {row[column]}")
+        
+        return "\n".join(contexts)
+
     def read_sheet(self, sheet_name: str) -> pd.DataFrame:
         """Read a sheet and return it as a pandas DataFrame."""
         if not self.current_spreadsheet_id:
@@ -90,4 +107,38 @@ class GoogleSheetsHandler:
         self.service.spreadsheets().values().batchUpdate(
             spreadsheetId=self.current_spreadsheet_id,
             body=body
-        ).execute() 
+        ).execute()
+
+    def ensure_language_columns(self, sheet_name: str, languages: List[str], force: bool = False, dry_run: bool = False) -> None:
+        """Ensure all required language columns exist in the sheet."""
+        df = self.read_sheet(sheet_name)
+        existing_columns = df.columns.tolist()
+        
+        # Find missing language columns
+        missing_langs = [lang for lang in languages if lang not in existing_columns]
+        
+        if missing_langs:
+            # Show warning
+            print(f"\nWARNING: The following language columns are missing in sheet '{sheet_name}':")
+            for lang in missing_langs:
+                print(f"  - {lang}")
+            
+            if not force and not dry_run:
+                response = input("\nWould you like to add these columns? [Y/n]: ")
+                if response.lower() not in ['', 'y', 'yes']:
+                    raise ValueError(f"Cannot proceed without required language columns: {', '.join(missing_langs)}")
+            
+            if dry_run:
+                print("\nWould add the following columns:")
+                for lang in missing_langs:
+                    print(f"  - {lang}")
+                return
+            
+            # Add new columns to the DataFrame
+            for lang in missing_langs:
+                df[lang] = ''
+                print(f"Added column: {lang}")
+            
+            # Update the sheet with new columns
+            self.update_sheet(sheet_name, df)
+            print(f"\nSuccessfully added {len(missing_langs)} new language column(s)")

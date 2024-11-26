@@ -7,12 +7,19 @@ google_sheets:
 
 llm:
   provider: "openai"
-  api_key: ""  # To be set via environment variable
+  api_key: ""  # Set via LLM_API_KEY environment variable
   model: "gpt-4"
   temperature: 0.3
+  api_url: "https://api.openai.com/v1"  # Change this for custom endpoints
 
-google_translate:
-  enabled: true  # As fallback
+context_columns:
+  patterns:
+    - "comment"     # Will match: comment, comments, commented, etc.
+    - "description" # Will match: description, descriptions, etc.
+    - "context"     # Will match: context, contextual, etc.
+    - "note"        # Will match: note, notes, notation, etc.
+    - "info"        # Will match: info, information, etc.
+  ignore_case: true  # Will match regardless of case
 
 term_base:
   sheet_name: "term_base"  # Name of the sheet containing term base
@@ -20,3 +27,7 @@ term_base:
     term: "EN TERM"
     comment: "COMMENT"
     translation_prefix: "TRANSLATION_"
+
+languages:
+  source: "en"
+  target: ["es", "fr", "de"]  # Default target languages

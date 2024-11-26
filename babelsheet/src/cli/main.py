@@ -24,9 +24,14 @@ def cli(ctx, config):
 @cli.command()
 @click.option('--sheet-id', help='Google Sheet ID to process')
 @click.option('--target-langs', help='Comma-separated list of target languages')
+@click.option('--force', is_flag=True, help='Force add missing language columns without confirmation')
+@click.option('--dry-run', is_flag=True, help='Show what would be done without making any changes')
 @click.pass_context
-async def translate(ctx, sheet_id: str, target_langs: str):
+async def translate(ctx, sheet_id: str, target_langs: str, force: bool, dry_run: bool):
     """Translate missing texts in the specified Google Sheet."""
+    if dry_run:
+        click.echo("\nDRY RUN MODE - No changes will be made\n")
+    
     config = ctx.obj['config']
     
     # Initialize components
@@ -68,6 +73,9 @@ async def translate(ctx, sheet_id: str, target_langs: str):
             
         click.echo(f"\nProcessing sheet: {sheet_name}")
         
+        # Ensure language columns exist
+        sheets_handler.ensure_language_columns(sheet_name, target_language_list, force=force, dry_run=dry_run)
+        
         # Read sheet data
         df = sheets_handler.read_sheet(sheet_name)
         
@@ -84,7 +92,7 @@ async def translate(ctx, sheet_id: str, target_langs: str):
                 click.echo(f"No missing translations for {lang}")
                 continue
                 
-            click.echo(f"\nTranslating {len(missing[lang])} texts to {lang}...")
+            click.echo(f"\nWould translate {len(missing[lang])} texts to {lang}..." if dry_run else f"\nTranslating {len(missing[lang])} texts to {lang}...")
             
             # Get term base for this language
             terms = term_base.get_terms_for_language(lang)
@@ -93,16 +101,26 @@ async def translate(ctx, sheet_id: str, target_langs: str):
             updates = {}
             for idx in missing[lang]:
                 source_text = df.iloc[idx][config['languages']['source']]
-                context = df.iloc[idx].get('context', '')
+                
+                # Get combined context from all matching columns
+                context = sheets_handler.get_context_from_row(
+                    df.iloc[idx],
+                    config['context_columns']['patterns'],
+                    config['context_columns'].get('ignore_case', True)
+                )
                 
                 try:
-                    translation = await translation_manager.translate_text(
-                        text=source_text,
-                        target_lang=lang,
-                        context=context,
-                        term_base=terms,
-                        term_base_handler=term_base  # Pass term_base_handler for automatic updates
-                    )
+                    if not dry_run:
+                        translation = await translation_manager.translate_text(
+                            text=source_text,
+                            target_lang=lang,
+                            context=context,
+                            term_base=terms,
+                            term_base_handler=term_base
+                        )
+                    else:
+                        click.echo(f"Would translate [{idx + 2}]: {source_text[:30]}...")
+                        continue
                     
                     # Prepare update
                     cell_range = f"{chr(65 + df.columns.get_loc(lang))}{idx + 2}"
@@ -114,9 +132,11 @@ async def translate(ctx, sheet_id: str, target_langs: str):
                     click.echo(f"Error translating row {idx + 2}: {e}")
             
             # Batch update the sheet
-            if updates:
+            if updates and not dry_run:
                 sheets_handler.write_translations(sheet_name, updates)
                 click.echo(f"Updated {len(updates)} translations in {lang}")
+            elif updates:
+                click.echo(f"Would update {len(updates)} translations in {lang}")
 
 @cli.command()
 @click.pass_context

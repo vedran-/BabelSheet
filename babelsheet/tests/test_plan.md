@@ -44,6 +44,10 @@
 - [ ] Test reading sheets
 - [ ] Test writing updates
 - [ ] Test error handling (invalid sheet ID, permissions)
+- [ ] Test adding new language columns
+  - [ ] Test with confirmation
+  - [ ] Test with --force option
+  - [ ] Test with --dry-run option
 
 ### 2.2 Term Base Handler
 - [ ] Test loading term base
@@ -57,6 +61,16 @@
 - [ ] Test term base integration
 - [ ] Test Google Translate fallback
 - [ ] Test context handling
+
+### 2.4 CLI Testing
+- [ ] Test init command
+- [ ] Test translate command
+  - [ ] Basic translation
+  - [ ] With --force option
+  - [ ] With --dry-run option
+  - [ ] With missing columns
+  - [ ] With invalid sheet ID
+  - [ ] With invalid languages
 
 ### 2.4 QA Handler
 - [ ] Test format validation

@@ -116,8 +116,25 @@ python -m babelsheet init
 
 2. Translate missing texts:
 ```bash
+# Basic translation
 python -m babelsheet translate --sheet-id="your-sheet-id" --target-langs="es,fr,de"
+
+# With options
+python -m babelsheet translate \
+    --sheet-id="your-sheet-id" \
+    --target-langs="es,fr,de" \
+    --force  # Add missing columns without confirmation
+    --dry-run  # Show what would be done without making changes
+
+# Preview changes
+python -m babelsheet translate --sheet-id="your-sheet-id" --target-langs="es" --dry-run
 ```
+
+### CLI Options
+- `--sheet-id`: Google Sheet ID to process
+- `--target-langs`: Comma-separated list of target languages
+- `--force`: Add missing language columns without confirmation
+- `--dry-run`: Show what would be done without making changes
 
 ## Sheet Structure
 
@@ -178,4 +195,30 @@ Common issues:
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Development
+
+### Running Tests
+
+1. Unit Tests:
+```bash
+pytest babelsheet/tests/
+```
+
+2. Integration Tests:
+To run integration tests, you need:
+- A test Google Sheet with appropriate permissions
+- Valid credentials.json
+- LLM API key
+
+```bash
+# Set up test environment
+export TEST_SHEET_ID="your-test-sheet-id"
+export LLM_API_KEY="your-api-key"
+
+# Run integration tests
+pytest babelsheet/tests/ --integration
+```
+
+Note: Integration tests will modify the test sheet. Use a dedicated test sheet, not a production one. 
