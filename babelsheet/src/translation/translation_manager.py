@@ -3,6 +3,10 @@ from ..utils.llm_handler import LLMHandler
 import pandas as pd
 import json
 from ..utils.qa_handler import QAHandler
+import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 class TranslationManager:
     def __init__(self, config: Dict):
@@ -22,6 +26,9 @@ class TranslationManager:
             max_length=config.get('max_length'),
             llm_handler=self.llm_handler
         )
+        
+        self.max_retries = 3
+        self.retry_delay = 1  # seconds
         
     def detect_missing_translations(self, df: pd.DataFrame, 
                                   source_lang: str = 'en',
@@ -82,17 +89,30 @@ Translate the text maintaining all rules."""
                             df: Optional[pd.DataFrame] = None,
                             row_idx: Optional[int] = None) -> Tuple[str, List[str]]:
         """Translate text and validate the translation."""
-        translated_text, issues = await self._perform_translation(
-            source_text, source_lang, target_lang, context, term_base
-        )
+        retries = 0
+        last_error = None
         
-        # Update DataFrame if provided
-        if df is not None and row_idx is not None:
-            if target_lang not in df.columns:
-                df[target_lang] = pd.NA
-            df.at[row_idx, target_lang] = translated_text
-        
-        return translated_text, issues
+        while retries < self.max_retries:
+            try:
+                translated_text, issues = await self._perform_translation(
+                    source_text, source_lang, target_lang, context, term_base
+                )
+                
+                # Update DataFrame if provided
+                if df is not None and row_idx is not None:
+                    if target_lang not in df.columns:
+                        df[target_lang] = pd.NA
+                    df.at[row_idx, target_lang] = translated_text
+                
+                return translated_text, issues
+            except Exception as e:
+                last_error = e
+                retries += 1
+                if retries == self.max_retries:
+                    logger.error(f"Failed to translate after {self.max_retries} attempts: {str(e)}")
+                    raise
+                logger.warning(f"Translation attempt {retries} failed, retrying in {self.retry_delay} seconds...")
+                await asyncio.sleep(self.retry_delay * retries)  # Exponential backoff
 
     async def _perform_translation(self, source_text: str, source_lang: str, 
                                  target_lang: str, context: str,
