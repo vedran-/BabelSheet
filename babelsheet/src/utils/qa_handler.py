@@ -281,7 +281,7 @@ class QAHandler:
                 end = re.escape(end)
                 
                 # Create pattern that matches the entire term including markers
-                regex = f"({start}[^{end}]+?{end})"  # Capture the entire term
+                regex = f"{start}.*?{end}"  # Simplified pattern to match exact terms
                 compiled = re.compile(regex)
                 
                 # Test the pattern
