@@ -1,17 +1,19 @@
 import re
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Pattern
 from .llm_handler import LLMHandler
 
 class QAHandler:
-    def __init__(self, max_length: Optional[int] = None, llm_handler: Optional[LLMHandler] = None):
+    def __init__(self, max_length: Optional[int] = None, llm_handler: Optional[LLMHandler] = None, non_translatable_patterns: List[Dict[str, str]] = None):
         """Initialize QA Handler.
         
         Args:
             max_length: Maximum allowed length for translations (if None, no limit)
             llm_handler: LLMHandler instance for AI-powered validation
+            non_translatable_patterns: List of non-translatable patterns
         """
         self.max_length = max_length
         self.llm_handler = llm_handler
+        self.patterns = self._compile_patterns(non_translatable_patterns) if non_translatable_patterns else None
         
     async def validate_translation(self, 
                                    source_text: str, 
@@ -27,6 +29,12 @@ class QAHandler:
             skip_llm_on_issues: If True, skips LLM validation when other issues are found
         """
         issues = []
+        
+        # Check for non-translatable terms
+        source_terms = self._extract_non_translatable_terms(source_text)
+        for term in source_terms:
+            if term not in translated_text:
+                issues.append(f"Non-translatable term '{term}' is missing in translation. Please make sure to NOT translate these terms.")
         
         # Basic format validation
         format_issues = self._validate_format(source_text, translated_text)
@@ -164,3 +172,22 @@ class QAHandler:
             
         except Exception as e:
             return [f"LLM validation failed: {str(e)}"]
+    
+    def _compile_patterns(self, patterns: List[Dict[str, str]]) -> List[Pattern]:
+        """Compile regex patterns for non-translatable terms."""
+        compiled_patterns = []
+        for pattern in patterns:
+            # Escape special regex characters in start/end markers
+            start = re.escape(pattern['start'])
+            end = re.escape(pattern['end'])
+            # Create pattern that matches anything between start and end markers
+            regex = f"{start}[^{end}]+?{end}"
+            compiled_patterns.append(re.compile(regex))
+        return compiled_patterns
+    
+    def _extract_non_translatable_terms(self, text: str) -> List[str]:
+        """Extract all non-translatable terms from text using configured patterns."""
+        terms = []
+        for pattern in self.patterns:
+            terms.extend(pattern.findall(text))
+        return terms

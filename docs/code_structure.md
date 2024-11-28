@@ -167,6 +167,11 @@ llm:
 
 qa:
   max_length: int           # Maximum length for QA validation
+  non_translatable_patterns:
+    - start: "{["   # Matches {[TERM]}
+      end: "]}"
+    - start: "<"    # Matches <TERM>
+      end: ">"
 
 context_columns:
   patterns: List[str]       # Column name patterns for context
@@ -289,3 +294,28 @@ languages:
    - Add integration tests for workflows
    - Test batch processing scenarios
    - Test error recovery
+
+### Quality Assurance Context
+
+Quality assurance includes several validation checks:
+- Non-translatable terms preservation
+- Term base compliance
+- Cultural appropriateness
+- Format preservation
+
+#### Non-Translatable Terms
+
+The system supports configurable patterns for identifying terms that should not be translated:
+```yaml
+qa:
+  non_translatable_patterns:
+    - start: "{["   # Matches {[TERM]}
+      end: "]}"
+    - start: "<"    # Matches <TERM>
+      end: ">"
+```
+
+These patterns are used to:
+1. Extract terms from source text
+2. Verify their presence in translated text
+3. Ensure exact preservation of terms
