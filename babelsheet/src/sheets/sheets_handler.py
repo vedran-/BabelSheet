@@ -279,7 +279,7 @@ class GoogleSheetsHandler:
         self.logger.debug(f"Missing translations: {missing_translations}")
         return missing_translations
 
-    def ensure_language_columns(self, sheet_name: str, langs: List[str], force: bool = False) -> bool:
+    def ensure_language_columns(self, sheet_name: str, langs: List[str]) -> bool:
         """Ensure all required language columns exist in the sheet."""
         df = self._get_sheet_data(sheet_name)
         missing_langs = [lang for lang in langs if lang not in df.columns]

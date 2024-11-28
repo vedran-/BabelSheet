@@ -139,14 +139,8 @@ def cli(ctx, config):
     count=True,
     help='Increase verbosity (use -v for info, -vv for debug, -vvv for trace)'
 )
-@click.option(
-    '--force',
-    '-f',
-    is_flag=True,
-    help='Force processing without confirmation prompts'
-)
 @click.pass_context
-def translate_command(ctx, target_langs, sheet_id, verbose, force):
+def translate_command(ctx, target_langs, sheet_id, verbose):
     """Translate missing entries in the specified Google Sheet."""
     # Update config with CLI sheet_id if provided
     if sheet_id:
@@ -159,9 +153,9 @@ def translate_command(ctx, target_langs, sheet_id, verbose, force):
     if not ctx.obj['config']['google_sheets']['spreadsheet_id']:
         raise click.UsageError("Spreadsheet ID must be provided either in config or via --sheet-id option")
     
-    return async_command(translate)(ctx, target_langs, verbose, force)
+    return async_command(translate)(ctx, target_langs, verbose)
 
-async def translate(ctx, target_langs, verbose, force):
+async def translate(ctx, target_langs, verbose):
     """Translate missing entries in the specified Google Sheet."""
     setup_logging(verbose)
     logger = logging.getLogger(__name__)
@@ -221,7 +215,7 @@ async def translate(ctx, target_langs, verbose, force):
             # First ensure all required language columns exist
             columns_added = False
             try:
-                columns_added = sheets_handler.ensure_language_columns(sheet_name, langs, force=force)
+                columns_added = sheets_handler.ensure_language_columns(sheet_name, langs)
             except ValueError as e:
                 logger.error(f"Error: {str(e)}")
                 continue

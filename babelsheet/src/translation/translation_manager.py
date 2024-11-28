@@ -185,8 +185,7 @@ specialized for casual mobile games. Translate the following texts professionall
 
 {combined_texts}
 
-Term Base References:
-{json.dumps(term_base, indent=2)}
+{"Term Base References:\n" + str(json.dumps(term_base, indent=2)) if term_base else ""}
 
 Rules:
 - Use provided term base for consistency
@@ -348,7 +347,8 @@ Rules for term extraction:
 - Focus on game-specific terminology
 - Include proper nouns that need consistent translation
 - Don't include common words or phrases
-- Don't include terms that are part of markup [xxx] or {{xxx}}"""
+- Don't include special terms which match the following patterns: {str(self.config['qa']['non_translatable_patterns'])}
+"""
 
         terms_schema = {
             "type": "object",

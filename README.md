@@ -230,7 +230,6 @@ python -m babelsheet translate --sheet-id="your-sheet-id" --target-langs="es,fr,
 ### CLI Options
 - `--sheet-id`: Google Sheet ID to process
 - `--target-langs`: Comma-separated list of target languages
-- `--force`: Add missing language columns without confirmation
 - `--dry-run`: Show what would be done without making changes
 
 ## Sheet Structure
