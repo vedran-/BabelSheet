@@ -37,7 +37,7 @@ class SheetsHandler:
         except Exception as e:
             logger.error(f"Failed to initialize Google Sheets service: {str(e)}")
             raise
-    
+
     def load_spreadsheet(self, spreadsheet_id: str):
         """Load entire spreadsheet into memory"""
         self.current_spreadsheet_id = spreadsheet_id
@@ -74,14 +74,14 @@ class SheetsHandler:
         except Exception as e:
             logger.error(f"Error loading spreadsheet: {str(e)}")
             raise
-    
+
     def save_changes(self):
         """Save all unsynced changes to Google Sheets"""
         if not self.current_spreadsheet_id:
             raise ValueError("No spreadsheet loaded")
-            
+
         logger.info("Saving unsynced changes to Google Sheets")
-        
+
         for sheet_name, sheet_data in self._sheets.items():
             updates = self.get_unsynced_cells(sheet_data)
             if not updates:
@@ -89,7 +89,7 @@ class SheetsHandler:
                 continue
                 
             logger.info(f"Syncing {len(updates)} changes in sheet: {sheet_name}")
-            
+
             # Convert to batch request format
             batch_data = [
                 {
@@ -98,12 +98,12 @@ class SheetsHandler:
                 }
                 for cell_ref, value in updates.items()
             ]
-            
+
             body = {
                 'valueInputOption': 'RAW',
                 'data': batch_data
             }
-            
+
             try:
                 result = self.service.spreadsheets().values().batchUpdate(
                     spreadsheetId=self.current_spreadsheet_id,
@@ -131,7 +131,15 @@ class SheetsHandler:
         if sheet_name not in self._sheets:
             raise ValueError(f"Sheet {sheet_name} not loaded")
         return self._sheets[sheet_name]
-    
+
+
+    def add_new_column(self, sheet_data: pd.DataFrame, column_title: str) -> int:
+        """Add a new column to end of the sheet"""
+        empty_column = [CellData(None) for _ in range(len(sheet_data))]
+        idx = len(sheet_data.columns)
+        sheet_data.insert(idx, idx, empty_column)
+        sheet_data.iloc[0, idx] = CellData(column_title, is_synced=False)
+        return idx
 
     def modify_cell_data(self, sheet_name: str, row: int, col: int, value: Any):
         """Modify a cell data in memory"""
@@ -146,16 +154,27 @@ class SheetsHandler:
             cell.value = value
         cell.is_synced = False
 
-    def get_column_indexes(self, sheet_data: pd.DataFrame, column_names: List[str]) -> List[int]:
-        """Get the indexes of the context columns"""
+    def get_column_names(self, sheet_data: pd.DataFrame) -> List[str]:
+        """Get all column names from 1st row"""
+        return [cell.value for cell in sheet_data.iloc[0]]        
 
+    def get_column_indexes(self, sheet_data: pd.DataFrame, column_names: List[str], create_if_missing: bool = False) -> List[int]:
+        """Get the indexes of the context columns"""
+        sheet_column_names = self.get_column_names(sheet_data)
         column_indexes = []
-        for colIdx in sheet_data.columns:
-            column_name = sheet_data.iloc[0, colIdx].value
-            if any(col_name.lower() == column_name.lower() for col_name in column_names):
-                column_indexes.append(colIdx)
+        
+        for col_name in column_names:
+            try:
+                col_idx = sheet_column_names.index(col_name)
+            except ValueError:
+                if create_if_missing:
+                    col_idx = self.add_new_column(sheet_data, col_name)
+                else:
+                    continue
+            column_indexes.append(col_idx)
 
         return column_indexes
+
 
     def get_unsynced_cells(self, sheet_data: pd.DataFrame) -> Dict[str, Any]:
         """Get all unsynced cells"""
@@ -163,24 +182,15 @@ class SheetsHandler:
         for rowIdx, row in sheet_data.iterrows():
             for colIdx, cell in enumerate(row):
                 if cell and not cell.is_synced:
-                    updates[f'{SheetIndex.to_column_letter(colIdx + 1)}{rowIdx + 2}'] = cell
+                    updates[f'{SheetIndex.to_column_letter(colIdx + 1)}{rowIdx + 1}'] = cell
 
         return updates
+
 
 
     #########################################################
     ########## Cell value operations #######################
     #########################################################
-    def set_cell_value(self, sheet_name: str, cell_ref: str, value: Any):
-        """Set a cell value in memory"""
-        if sheet_name not in self._sheets:
-            raise ValueError(f"Sheet {sheet_name} not loaded")
-            
-        col, row = SheetIndex.parse_cell_reference(cell_ref)
-        col_idx = SheetIndex.from_column_letter(col) - 1
-        row_idx = SheetIndex.to_df_index(row)
-        
-        self._sheets[sheet_name].set_cell(row_idx, col_idx, value)
         
     def get_cell_value(self, sheet_name: str, cell_ref: str) -> Any:
         """Get a cell value from memory"""
@@ -194,8 +204,3 @@ class SheetsHandler:
         cell = self._sheets[sheet_name].get_cell(row_idx, col_idx)
         return cell.value if cell else None
     
-    def add_new_column(self, sheet_name: str, column_letter: str, column_title: str):
-        """Add a new column to the sheet"""
-        col_idx = SheetIndex.from_column_letter(column_letter) - 1
-        self._sheets[sheet_name].add_column(col_idx, column_title)
-

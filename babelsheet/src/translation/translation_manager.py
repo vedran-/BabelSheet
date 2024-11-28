@@ -5,7 +5,6 @@ import json
 from ..utils.qa_handler import QAHandler
 from ..term_base.term_base_handler import TermBaseHandler
 from ..sheets.sheets_handler import SheetsHandler
-from ..utils.auth import get_credentials
 import asyncio
 import logging
 
@@ -62,11 +61,7 @@ class TranslationManager:
             Dictionary mapping language codes to lists of row indices with missing translations
         """
         missing_translations = {}
-        
-        # Normalize language codes
-        source_lang = source_lang.lower()
-        target_langs = [lang.lower() for lang in target_langs]
-        
+
         # Check each target language
         for lang in target_langs:
             missing_translations[lang] = []
@@ -83,7 +78,7 @@ class TranslationManager:
                     continue
                     
                 # Check if translation is missing or empty
-                if pd.isna(df.iloc[idx][lang]) or str(df.iloc[idx][lang]).strip() == '':
+                if pd.isna(df.iloc[idx][lang]) or str(df.iloc[idx][lang]).value.strip() == '':
                     missing_translations[lang].append(idx)
         
         return missing_translations
@@ -399,6 +394,58 @@ Translate each text maintaining all rules. Return translations and term suggesti
                 results.extend(batch_results)
         
         return results
+
+    async def ensure_sheet_translations(self, sheet_name: str, source_lang: str, target_langs: List[str]) -> None:
+        """Ensure all terms in the term base have translations for target languages.
+        This should be called before starting translation of other sheets.
+        
+        Args:
+            sheet_name: Name of the sheet to ensure translations for
+            source_lang: Source language code
+            target_langs: List of target language codes
+        """
+        logger.debug(f"Ensuring translations for sheet '{sheet_name}' from '{source_lang}' to {target_langs}")
+        
+        # Get the sheet data
+        df = self.sheets_handler.get_sheet_data(sheet_name)
+            
+        # Detect missing translations
+        missing_translations = self.detect_missing_translations(df, source_lang, target_langs)
+
+        print(f"\n\nMissing translations: {missing_translations}\n\n")
+        
+        # Process missing translations for each language
+        translations_to_process = []
+        for lang, missing_indices in missing_translations.items():
+            if not missing_indices:
+                continue
+                
+            logger.info(f"Found {len(missing_indices)} missing translations for language {lang}")
+            
+            # Prepare translation requests
+            for idx in missing_indices:
+                source_text = df.iloc[idx][source_lang]
+                if pd.isna(source_text):
+                    continue
+                    
+                translations_to_process.append({
+                    'source_text': str(source_text),
+                    'target_lang': lang,
+                    'row_idx': idx
+                })
+        
+        if translations_to_process:
+            # Process all translations and update the DataFrame
+            await self.process_translations(translations_to_process, df)
+            
+            # Save the updated sheet
+            await self.sheets_handler.write_sheet(sheet_name, df)
+            logger.info(f"Updated sheet {sheet_name} with new translations")
+        else:
+            logger.info(f"No missing translations found for sheet {sheet_name}")
+
+
+
 
     async def ensure_term_base_translations(self, target_langs: List[str]) -> None:
         """Ensure all terms in the term base have translations for target languages.

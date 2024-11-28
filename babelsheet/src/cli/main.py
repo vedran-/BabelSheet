@@ -179,6 +179,7 @@ async def translate(ctx, target_langs, verbose):
     ctx.term_base_handler = TermBaseHandler(ctx)
     logger.info(f"Successfully initialized term base handler with sheet: {ctx.term_base_handler.sheet_name}")
 
+    """
     #terms = ctx.term_base_handler.get_terms_for_language(ctx.target_langs[0])
     #logger.info(terms)
 
@@ -191,10 +192,9 @@ async def translate(ctx, target_langs, verbose):
     print('----------------')
     print(ctx.sheets_handler.get_sheet_data('Sheet1'))
     print('----------------')
-
     ctx.sheets_handler.save_changes()
-
     sys.exit()
+    """
 
     # Initialize TranslationManager with the config and handlers
     translation_manager = TranslationManager(
@@ -202,15 +202,12 @@ async def translate(ctx, target_langs, verbose):
         sheets_handler=ctx.sheets_handler,
         term_base_handler=ctx.term_base_handler
     )
-    
+
     # First, ensure term base translations are up to date if we have a term base
     if ctx.term_base_handler:
-        logger.info("Ensuring term base translations are up to date...")
-        try:
-            await translation_manager.ensure_term_base_translations(target_langs)
-        except Exception as e:
-            logger.error(f"Failed to update term base translations: {e}")
-            logger.info("Proceeding with translation without term base updates")
+        logger.debug("Ensuring term base translations are up to date...")
+        await translation_manager.ensure_sheet_translations(ctx.term_base_handler.sheet_name, 
+            ctx.source_lang, ctx.target_langs)
     
     # Process each sheet
     sheet_names = ctx.sheets_handler.get_all_sheets()
