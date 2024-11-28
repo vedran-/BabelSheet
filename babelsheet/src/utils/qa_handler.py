@@ -1,5 +1,5 @@
 import re
-from typing import Dict, List, Tuple, Optional, Pattern
+from typing import Dict, List, Tuple, Optional, Pattern, Any
 from .llm_handler import LLMHandler
 import logging
 
@@ -29,13 +29,22 @@ class QAHandler:
             self.logger.debug("No non-translatable patterns configured")
         
     async def validate_translation(self, source_text: str, translated_text: str,
-                                 term_base: Optional[Dict[str, str]] = None,
-                                 skip_llm_on_issues: bool = False) -> List[str]:
-        """Validate translation quality."""
+                                 term_base: Optional[Dict[str, Dict[str, Any]]] = None,
+                                 skip_llm_on_issues: bool = False,
+                                 target_lang: str = None) -> List[str]:
+        """Validate translation quality.
+        
+        Args:
+            source_text: Original text
+            translated_text: Translated text to validate
+            term_base: Optional term base dictionary
+            skip_llm_on_issues: Whether to skip LLM validation if other issues found
+            target_lang: Target language code for term base validation
+        """
+        issues = []
+        
         try:
             self.logger.debug(f"Validating translation:\nSource: {source_text}\nTranslated: {translated_text}")
-            
-            issues = []
             
             # Check for non-translatable terms only if patterns are configured
             if self.patterns:
@@ -63,11 +72,14 @@ class QAHandler:
                 issues.append(issue)
             
             # Validate term base usage if provided
-            if term_base:
-                tb_issues = self._validate_term_base(translated_text, term_base)
+            if term_base and target_lang:
+                self.logger.debug(f"Starting term base validation for language: {target_lang}")
+                tb_issues = self._validate_term_base(translated_text, term_base, target_lang)
                 if tb_issues:
                     self.logger.warning(f"Found term base issues: {tb_issues}")
                     issues.extend(tb_issues)
+            elif term_base:
+                self.logger.warning("Term base provided but target language missing - skipping term base validation")
             
             # If we found issues and skip_llm_on_issues is True, return early
             if issues and skip_llm_on_issues:
@@ -148,20 +160,53 @@ class QAHandler:
                     
         return issues
     
-    def _validate_term_base(self, translation: str, term_base: Dict[str, str]) -> List[str]:
-        """Check if translation uses terms from term base correctly."""
-        issues = []
+    def _validate_term_base(self, translation: str, term_base: Dict[str, Dict[str, Any]], target_lang: str) -> List[str]:
+        """Check if translation uses terms from term base correctly.
         
-        for source_term, expected_translation in term_base.items():
-            # Skip empty translations in term base
-            if not expected_translation:
+        Args:
+            translation: The translated text to validate
+            term_base: Term base dictionary with structure {term: {'translations': Dict[str, str], 'comment': str}}
+            target_lang: Target language code
+        """
+        issues = []
+        self.logger.debug(f"Validating translation against term base for language: {target_lang}")
+        
+        for source_term, term_data in term_base.items():
+            translations = term_data.get('translations', {})
+            comment = term_data.get('comment', '')
+            
+            # Skip if no translations available
+            if not translations:
+                self.logger.debug(f"Skipping term '{source_term}' - no translations available")
                 continue
+            
+            # Get translation for target language
+            expected_translation = translations.get(target_lang)
+            if not expected_translation:
+                self.logger.debug(f"Skipping term '{source_term}' - no translation for {target_lang}")
+                continue
+            
+            # Check if source term appears in translation
+            source_term_lower = source_term.lower()
+            translation_lower = translation.lower()
+            
+            # Use word boundary check to avoid partial matches
+            if f" {source_term_lower} " in f" {translation_lower} ":
+                expected_lower = expected_translation.lower()
                 
-            # Check if source term's translation is used consistently
-            if source_term.lower() in translation.lower() and expected_translation.lower() not in translation.lower():
-                issues.append(f"Term base mismatch: '{source_term}' should be translated as '{expected_translation}'")
+                # Check if expected translation is used
+                if expected_lower not in translation_lower:
+                    issue = f"Term base mismatch: '{source_term}' should be translated as '{expected_translation}'"
+                    if comment:
+                        issue += f" (Note: {comment})"
+                    self.logger.warning(f"Found term base issue: {issue}")
+                    issues.append(issue)
+                else:
+                    self.logger.debug(f"Term '{source_term}' correctly translated as '{expected_translation}'")
                 
-        return issues 
+        if not issues:
+            self.logger.debug("No term base issues found")
+        return issues
     
     async def _validate_with_llm(self, source_text: str, translated_text: str) -> List[str]:
         """Use LLM to validate translation quality."""

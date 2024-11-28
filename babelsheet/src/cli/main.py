@@ -8,7 +8,6 @@ from ..utils.auth import get_credentials
 from ..sheets.sheets_handler import GoogleSheetsHandler
 from ..translation.translation_manager import TranslationManager
 from ..term_base.term_base_handler import TermBaseHandler
-import argparse
 import logging
 import pandas as pd
 
@@ -19,7 +18,7 @@ def load_config(config_path: str) -> Dict[str, Any]:
     with open(config_path, 'r') as f:
         return yaml.safe_load(f)
 
-def validate_config(config, sheet_id_from_cli=None):
+def validate_config(config):
     """Validate the configuration."""
     # Define expected types and requirements for config values
     validation_schema = {
@@ -34,12 +33,7 @@ def validate_config(config, sheet_id_from_cli=None):
             'target': list
         },
         'term_base': {
-            'sheet_name': str,
-            'columns': {
-                'term': str,
-                'comment': str,
-                'translation_prefix': str
-            }
+            'sheet_name': str
         },
         'context_columns': {
             'patterns': list,
@@ -47,7 +41,15 @@ def validate_config(config, sheet_id_from_cli=None):
         },
         'llm': {
             'api_url': str,
-            'temperature': (int, float)
+            'temperature': (int, float),
+            'batch_size': (int, type(None)),  # Optional
+            'batch_delay': (int, float, type(None)),  # Optional
+            'max_retries': (int, type(None)),  # Optional
+            'retry_delay': (int, float, type(None))  # Optional
+        },
+        'qa': {
+            'non_translatable_patterns': list,
+            'max_length': (int, type(None))  # Optional
         }
     }
 
@@ -55,10 +57,6 @@ def validate_config(config, sheet_id_from_cli=None):
         for key, expected in schema.items():
             current_path = f"{path}.{key}" if path else key
             
-            # Special handling for spreadsheet_id
-            if current_path == "google_sheets.spreadsheet_id" and sheet_id_from_cli is not None:
-                continue
-                
             if key not in config_section:
                 if current_path == "google_sheets.spreadsheet_id":
                     config_section[key] = None  # Set default to None for spreadsheet_id
@@ -70,11 +68,12 @@ def validate_config(config, sheet_id_from_cli=None):
                     raise TypeError(f"Invalid type for {current_path}. Expected dict")
                 validate_dict(config_section[key], expected, current_path)
             else:
-                if not isinstance(config_section[key], expected if not isinstance(expected, tuple) else expected):
-                    raise TypeError(
-                        f"Invalid type for {current_path}. "
-                        f"Expected {expected}, got {type(config_section[key])}"
-                    )
+                if config_section[key] is not None:  # Skip type validation for None values
+                    if not isinstance(config_section[key], expected if not isinstance(expected, tuple) else expected):
+                        raise TypeError(
+                            f"Invalid type for {current_path}. "
+                            f"Expected {expected}, got {type(config_section[key])}"
+                        )
 
     validate_dict(config, validation_schema)
 
@@ -149,20 +148,20 @@ def cli(ctx, config):
 @click.pass_context
 def translate_command(ctx, target_langs, sheet_id, verbose, force):
     """Translate missing entries in the specified Google Sheet."""
-    # Validate config with sheet_id from CLI
-    validate_config(ctx.obj['config'], sheet_id)
-    
     # Update config with CLI sheet_id if provided
     if sheet_id:
         ctx.obj['config']['google_sheets']['spreadsheet_id'] = sheet_id
+    
+    # Validate config after potential sheet_id update
+    validate_config(ctx.obj['config'])
     
     # Ensure we have a sheet_id from somewhere
     if not ctx.obj['config']['google_sheets']['spreadsheet_id']:
         raise click.UsageError("Spreadsheet ID must be provided either in config or via --sheet-id option")
     
-    return async_command(translate)(ctx, target_langs, sheet_id, verbose, force)
+    return async_command(translate)(ctx, target_langs, verbose, force)
 
-async def translate(ctx, target_langs, sheet_id, verbose, force):
+async def translate(ctx, target_langs, verbose, force):
     """Translate missing entries in the specified Google Sheet."""
     setup_logging(verbose)
     logger = logging.getLogger(__name__)
@@ -174,25 +173,46 @@ async def translate(ctx, target_langs, sheet_id, verbose, force):
         # Initialize handlers
         creds = get_credentials()
         sheets_handler = GoogleSheetsHandler(creds)
-        sheets_handler.set_spreadsheet(sheet_id)
         
-        # Initialize TranslationManager with the config
-        translation_manager = TranslationManager(ctx.obj['config'])
+        # Get spreadsheet ID from config (already validated)
+        spreadsheet_id = ctx.obj['config']['google_sheets']['spreadsheet_id']
+        sheets_handler.set_spreadsheet(spreadsheet_id)
         
         # Initialize term base handler with sheet name from config
-        term_base_handler = TermBaseHandler(
+        try:
+            term_base_handler = TermBaseHandler(
+                sheets_handler=sheets_handler,
+                sheet_name=ctx.obj['config']['term_base']['sheet_name']
+            )
+            logger.info(f"Successfully initialized term base handler with sheet: {ctx.obj['config']['term_base']['sheet_name']}")
+        except Exception as e:
+            logger.warning(f"Failed to initialize term base handler: {e}")
+            logger.info("Proceeding without term base")
+            term_base_handler = None
+        
+        # Initialize TranslationManager with the config and handlers
+        translation_manager = TranslationManager(
+            config=ctx.obj['config'],
             sheets_handler=sheets_handler,
-            sheet_name=ctx.obj['config']['term_base']['sheet_name']
+            term_base_handler=term_base_handler
         )
-        term_base = term_base_handler.load_term_base()
+        
+        # First, ensure term base translations are up to date if we have a term base
+        if term_base_handler:
+            logger.info("Ensuring term base translations are up to date...")
+            try:
+                await translation_manager.ensure_term_base_translations(langs)
+            except Exception as e:
+                logger.error(f"Failed to update term base translations: {e}")
+                logger.info("Proceeding with translation without term base updates")
         
         # Process each sheet
         sheet_names = sheets_handler.get_all_sheets()
         for sheet_name in sheet_names:
             logger.info(f"\nProcessing sheet: {sheet_name}")
             
-            # Skip term base sheet
-            if sheet_name == ctx.obj['config']['term_base']['sheet_name']:
+            # Skip term base sheet if it exists
+            if term_base_handler and sheet_name == ctx.obj['config']['term_base']['sheet_name']:
                 continue
             
             # Get initial sheet data
@@ -242,6 +262,9 @@ async def translate(ctx, target_langs, sheet_id, verbose, force):
                                 context_parts.append(str(df.loc[idx, col]))
                     contexts.append(" | ".join(context_parts))
                 
+                # Get term base for this language
+                term_base = term_base_handler.get_terms_for_language(lang)
+                
                 # Translate and process each batch
                 async for batch_results in translation_manager.batch_translate(
                     texts=texts,
@@ -275,7 +298,7 @@ async def translate(ctx, target_langs, sheet_id, verbose, force):
         
     except Exception as e:
         logger.error(f"Error during translation: {str(e)}")
-        raise
+        raise e
 
 @cli.command()
 @click.pass_context

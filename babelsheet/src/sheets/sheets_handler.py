@@ -324,3 +324,27 @@ class GoogleSheetsHandler:
             valueInputOption='RAW',
             body=body
         ).execute()
+
+    def is_ready(self) -> bool:
+        """Check if the handler is properly configured.
+        
+        Returns:
+            bool: True if the handler is ready to use (has service and spreadsheet ID)
+        """
+        if not self.service:
+            self.logger.error("Google Sheets service not initialized")
+            return False
+            
+        if not self.current_spreadsheet_id:
+            self.logger.error("Spreadsheet ID not set")
+            return False
+            
+        try:
+            # Try to get spreadsheet info to verify access
+            self.service.spreadsheets().get(
+                spreadsheetId=self.current_spreadsheet_id
+            ).execute()
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to access spreadsheet: {e}")
+            return False

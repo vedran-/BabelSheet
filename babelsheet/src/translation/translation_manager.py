@@ -1,17 +1,40 @@
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, AsyncGenerator
 from ..utils.llm_handler import LLMHandler
 import pandas as pd
 import json
 from ..utils.qa_handler import QAHandler
+from ..term_base.term_base_handler import TermBaseHandler
+from ..sheets.sheets_handler import GoogleSheetsHandler
+from ..utils.auth import get_credentials
 import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
 
 class TranslationManager:
-    def __init__(self, config: Dict):
+    def __init__(self, config: Dict, sheets_handler: Optional[GoogleSheetsHandler] = None, term_base_handler: Optional[TermBaseHandler] = None):
+        """Initialize Translation Manager.
+        
+        Args:
+            config: Configuration dictionary containing all necessary settings
+            sheets_handler: Optional pre-initialized GoogleSheetsHandler
+            term_base_handler: Optional pre-initialized TermBaseHandler
+        """
         self.config = config
         llm_config = config.get('llm', {})
+        google_sheets_config = config.get('google_sheets', {})
+        
+        # Use provided sheets_handler or create new one
+        if sheets_handler:
+            self.sheets_handler = sheets_handler
+        else:
+            self.sheets_handler = GoogleSheetsHandler(
+                credentials=get_credentials()
+            )
+            # Set spreadsheet ID if provided in config
+            spreadsheet_id = google_sheets_config.get('spreadsheet_id')
+            if spreadsheet_id:
+                self.sheets_handler.set_spreadsheet(spreadsheet_id)
         
         # Initialize LLM Handler with correct parameters from config
         self.llm_handler = LLMHandler(
@@ -22,10 +45,11 @@ class TranslationManager:
             config=llm_config
         )
         
-        # Initialize QA Handler with LLM Handler
+        # Initialize QA Handler
         self.qa_handler = QAHandler(
             max_length=config.get('max_length'),
-            llm_handler=self.llm_handler
+            llm_handler=self.llm_handler,
+            non_translatable_patterns=config.get('qa', {}).get('non_translatable_patterns', [])
         )
         
         # Get batch configuration
@@ -33,6 +57,35 @@ class TranslationManager:
         self.batch_delay = llm_config.get('batch_delay', 1)
         self.max_retries = llm_config.get('max_retries', 3)
         self.retry_delay = llm_config.get('retry_delay', 1)  # seconds
+        
+        # Use provided term_base_handler or create new one
+        if term_base_handler:
+            self.term_base_handler = term_base_handler
+        else:
+            term_base_config = config.get('term_base', {})
+            try:
+                self.term_base_handler = TermBaseHandler(
+                    sheets_handler=self.sheets_handler,
+                    sheet_name=term_base_config.get('sheet_name', 'Term Base')
+                )
+            except Exception as e:
+                logger.error(f"Failed to initialize term base handler: {e}")
+                logger.info("Creating empty term base handler")
+                self.term_base_handler = None
+        
+    def set_spreadsheet_id(self, spreadsheet_id: str) -> None:
+        """Set the spreadsheet ID for the translation manager.
+        This can be called after initialization if spreadsheet ID wasn't provided in config.
+        
+        Args:
+            spreadsheet_id: The ID of the Google Sheet to use
+        """
+        if not spreadsheet_id:
+            raise ValueError("Spreadsheet ID cannot be empty")
+            
+        self.sheets_handler.set_spreadsheet(spreadsheet_id)
+        # Reload term base with new spreadsheet
+        self.term_base_handler.load_term_base()
         
     def detect_missing_translations(self, df: pd.DataFrame, 
                                   source_lang: str = 'en',
@@ -107,7 +160,7 @@ class TranslationManager:
 
     async def _perform_translation(self, source_texts: List[str], source_lang: str, 
                                  target_lang: str, contexts: List[str],
-                                 term_base: Dict[str, str] = None) -> List[Tuple[str, List[str]]]:
+                                 term_base: Dict[str, Dict[str, Any]] = None) -> List[Tuple[str, List[str]]]:
         """Internal method to perform batch translation.
         
         Args:
@@ -192,7 +245,8 @@ Translate each text maintaining all rules. Return translations in a structured f
                 source_text=source_text,
                 translated_text=translated_text,
                 term_base=term_base,
-                skip_llm_on_issues=False
+                skip_llm_on_issues=False,
+                target_lang=target_lang
             )
             validation_tasks.append(task)
         
@@ -209,10 +263,10 @@ Translate each text maintaining all rules. Return translations in a structured f
 
     async def batch_translate(self, texts: List[str], target_lang: str,
                             contexts: List[str] = None,
-                            term_base: Dict[str, str] = None,
+                            term_base: Dict[str, Dict[str, Any]] = None,
                             df: Optional[pd.DataFrame] = None,
-                            row_indices: Optional[List[int]] = None) -> List[Dict[str, Any]]:
-        """Translate a batch of texts with configurable batch size and delay.
+                            row_indices: Optional[List[int]] = None) -> AsyncGenerator[List[Dict[str, Any]], None]:
+        """Translate a batch of texts.
         
         Args:
             texts: List of texts to translate
@@ -236,6 +290,7 @@ Translate each text maintaining all rules. Return translations in a structured f
             if target_lang not in df.columns:
                 df[target_lang] = pd.NA
         
+        # Process in batches
         for i in range(0, len(texts), self.batch_size):
             batch_texts = texts[i:i + self.batch_size]
             batch_contexts = contexts[i:i + self.batch_size]
@@ -244,7 +299,7 @@ Translate each text maintaining all rules. Return translations in a structured f
             logger.info(f"Processing batch {i//self.batch_size + 1} of {(len(texts) + self.batch_size - 1)//self.batch_size}")
             
             # Process the entire batch at once
-            batch_translations = await self.translate_text(
+            batch_translations = await self._perform_translation(
                 source_texts=batch_texts,
                 source_lang=self.config['languages']['source'],
                 target_lang=target_lang,
@@ -252,24 +307,27 @@ Translate each text maintaining all rules. Return translations in a structured f
                 term_base=term_base
             )
             
-            # Process results and update DataFrame
+            # Process each translation in the batch
             batch_results = []
             for j, (text, context, (translation, issues)) in enumerate(zip(batch_texts, batch_contexts, batch_translations)):
-                # Update DataFrame with just the translated text if row index is provided
-                if df is not None and batch_indices is not None:
-                    df.at[batch_indices[j], target_lang] = translation
-                
-                batch_results.append({
+                result = {
                     'source_text': text,
                     'translated_text': translation,
                     'context': context,
                     'issues': issues,
-                    'target_lang': target_lang,
-                    'needs_update': True,  # Signal that this batch needs to be written to sheets
                     'batch_number': i//self.batch_size + 1
-                })
+                }
+                
+                # Update DataFrame if provided
+                if df is not None and batch_indices is not None:
+                    df.loc[batch_indices[j], target_lang] = translation
+                
+                # Update term base if this is a term that needs translation
+                if text in self.term_base_handler.term_base:
+                    self.term_base_handler.update_translations(text, {target_lang: translation})
+                
+                batch_results.append(result)
             
-            # Signal that this batch is complete and should be written to sheets
             yield batch_results
             
             # Apply batch delay if this is not the last batch
@@ -328,7 +386,12 @@ Rules for term extraction:
             return {}
 
     async def process_translations(self, translations: List[Dict], df: Optional[pd.DataFrame] = None) -> List[Dict]:
-        """Process a batch of translations with validation."""
+        """Process a batch of translations with validation.
+        
+        Args:
+            translations: List of translation requests
+            df: Optional DataFrame to update with translations
+        """
         results = []
         
         # Group translations by target language for efficient batch processing
@@ -338,6 +401,10 @@ Rules for term extraction:
             if lang not in by_language:
                 by_language[lang] = []
             by_language[lang].append(item)
+        
+        # First ensure term base is complete for all target languages
+        target_langs = list(by_language.keys())
+        await self.ensure_term_base_translations(target_langs)
         
         # Process each language group
         for lang, items in by_language.items():
@@ -352,19 +419,73 @@ Rules for term extraction:
                 if 'row_idx' in item:
                     row_indices.append(item['row_idx'])
             
-            # Get term base for this language if available
-            term_base = {}  # You might want to implement term base lookup here
+            # Get term base for this language
+            term_base = self.term_base_handler.get_terms_for_language(lang)
             
             # Process the batch
-            batch_results = await self.batch_translate(
+            async for batch_results in self.batch_translate(
                 texts=texts,
                 target_lang=lang,
                 contexts=contexts,
                 term_base=term_base,
                 df=df,
                 row_indices=row_indices if row_indices else None
-            )
-            
-            results.extend(batch_results)
+            ):
+                results.extend(batch_results)
         
         return results
+
+    async def ensure_term_base_translations(self, target_langs: List[str]) -> None:
+        """Ensure all terms in the term base have translations for target languages.
+        This should be called before starting translation of other sheets.
+        
+        Args:
+            target_langs: List of target language codes
+        """
+        logger.info(f"Checking term base translations for languages: {target_langs}")
+        
+        # Get all terms that need translation
+        missing_translations = {}
+        for term, data in self.term_base_handler.term_base.items():
+            translations = data['translations']
+            comment = data['comment']
+            
+            # Check each target language
+            for lang in target_langs:
+                if lang not in translations or not translations[lang]:
+                    if lang not in missing_translations:
+                        missing_translations[lang] = []
+                    missing_translations[lang].append({
+                        'term': term,
+                        'context': comment
+                    })
+        
+        if not missing_translations:
+            logger.info("All terms have translations for target languages")
+            return
+        
+        # Translate missing terms for each language
+        for lang, terms in missing_translations.items():
+            logger.info(f"Translating {len(terms)} missing terms for language {lang}")
+            
+            # Process terms in batches
+            source_texts = [item['term'] for item in terms]
+            contexts = [item['context'] for item in terms]
+            
+            # Get term base for this language
+            term_base = self.term_base_handler.get_terms_for_language(lang)
+            
+            # Translate the batch
+            async for batch_results in self.batch_translate(
+                texts=source_texts,
+                target_lang=lang,
+                contexts=contexts,
+                term_base=term_base
+            ):
+                # Update term base with translations
+                for result in batch_results:
+                    term = result['source_text']
+                    translation = result['translated_text']
+                    self.term_base_handler.update_translations(term, {lang: translation})
+                    
+                logger.info(f"Updated term base with batch {batch_results[0]['batch_number']} translations")
