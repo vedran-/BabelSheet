@@ -17,67 +17,14 @@ class CellData:
     def __str__(self) -> str:
         return str(self.value)
 
-class SheetData:
-    def __init__(self, name: str, data: Dict[Tuple[int, int], CellData]):
-        self.name = name
-        self.data = data  # (row, col) -> CellData
-        self._max_row = max([pos[0] for pos in data.keys()]) if data else 0
-        self._max_col = max([pos[1] for pos in data.keys()]) if data else 0
-        self.column_names = [data.get((0, col), CellData('')).value for col in range(self._max_col + 1)]
-    
-    def get_cell(self, row: int, col: int) -> Optional[CellData]:
-        return self.data.get((row, col))
-    
-    def set_cell(self, row: int, col: int, value: Any):
-        cell = CellData(value, is_synced=False)
-        self.data[(row, col)] = cell
-        self._max_row = max(self._max_row, row)
-        self._max_col = max(self._max_col, col)
-    
-    def get_unsynced_cells(self) -> Dict[str, Any]:
-        """Returns a dict of A1 notation -> value for unsynced cells"""
-        updates = {}
-        for (row, col), cell in self.data.items():
-            if not cell.is_synced:
-                a1_notation = f"{SheetIndex.to_column_letter(col+1)}{row+1}"
-                updates[a1_notation] = cell.value
-        return updates
-    
-    def add_column(self, col_idx: int, column_title: str):
-        """Add a new column to the sheet"""
-        self._max_col += 1
-        self.data[(0, col_idx)] = CellData(column_title)
-    
-    def mark_synced(self, cells: List[str]):
-        """Mark cells as synced using A1 notation"""
-        for cell in cells:
-            col, row = SheetIndex.parse_cell_reference(cell)
-            col_idx = SheetIndex.from_column_letter(col) - 1
-            row_idx = SheetIndex.to_df_index(row)
-            if (row_idx, col_idx) in self.data:
-                self.data[(row_idx, col_idx)].is_synced = True
-
-    @classmethod
-    def from_dataframe(cls, name: str, df: pd.DataFrame) -> 'SheetData':
-        """Create SheetData from DataFrame"""
-        data = {}
-
-        # Store all data as before
-        for row in range(len(df.index)):
-            for col in range(len(df.columns)):
-                value = df.iloc[row, col]
-                if pd.notna(value):  # Only store non-empty cells
-                    data[(row, col)] = CellData(value)
-        return cls(name, data)
-
 class SheetsHandler:
-    def __init__(self, credentials_path: str = None, credentials: Optional[Credentials] = None):
+    def __init__(self, ctx, credentials: Credentials = None):
+        self.ctx = ctx
         self.service = None
-        self.current_spreadsheet_id = None
-        self._sheets: Dict[str, SheetData] = {}  # sheet_name -> SheetData
-        self.credentials_path = credentials_path
+        self._sheets: Dict[str, pd.DataFrame] = {}  # sheet name -> sheet data
         self.credentials = credentials
         self._initialize_service()
+        self.load_spreadsheet(ctx.spreadsheet_id)
 
     def _initialize_service(self) -> None:
         """Initialize the Google Sheets service."""
@@ -106,6 +53,10 @@ class SheetsHandler:
             for sheet in sheets:
                 sheet_name = sheet['properties']['title']
                 logger.debug(f"Loading sheet: {sheet_name}")
+
+                if sheet_name in self._sheets:
+                    logger.error(f"Sheet {sheet_name} already loaded, skipping")
+                    continue
                 
                 # Load sheet data
                 result = self.service.spreadsheets().values().get(
@@ -113,12 +64,10 @@ class SheetsHandler:
                     range=sheet_name
                 ).execute()
                 
-                values = result.get('values', [])
+                values = [[CellData(value) for value in row] for row in result.get('values', [])]
                 df = pd.DataFrame(values)
-                #logger.debug(f"Loaded sheet {sheet_name}:\n{df}")
-                
-                # Convert to our internal format
-                self._sheets[sheet_name] = SheetData.from_dataframe(sheet_name, df)
+
+                self._sheets[sheet_name] = df
                 
             logger.info(f"Loaded {len(self._sheets)} sheets into memory: {self.get_sheet_names()}")
 
@@ -134,7 +83,7 @@ class SheetsHandler:
         logger.info("Saving unsynced changes to Google Sheets")
         
         for sheet_name, sheet_data in self._sheets.items():
-            updates = sheet_data.get_unsynced_cells()
+            updates = self.get_unsynced_cells(sheet_data)
             if not updates:
                 logger.debug(f"No changes to sync for sheet: {sheet_name}")
                 continue
@@ -145,7 +94,7 @@ class SheetsHandler:
             batch_data = [
                 {
                     'range': f'{sheet_name}!{cell_ref}',
-                    'values': [[value]]
+                    'values': [[value.value]]
                 }
                 for cell_ref, value in updates.items()
             ]
@@ -163,10 +112,12 @@ class SheetsHandler:
                 
                 if 'totalUpdatedCells' in result:
                     # Mark cells as synced
-                    sheet_data.mark_synced(updates.keys())
+                    for cell_ref, cell in updates.items():
+                        cell.is_synced = True
+
                     logger.info(f"Successfully synced {result['totalUpdatedCells']} cells in {sheet_name}")
                 else:
-                    logger.warning(f"Update completed but no cell count returned for {sheet_name}")
+                    logger.critical(f"Update completed but no cell count returned for {sheet_name}")
                     
             except Exception as e:
                 logger.error(f"Error syncing changes for sheet {sheet_name}: {str(e)}")
@@ -176,11 +127,50 @@ class SheetsHandler:
         """Get all sheet names"""
         return list(self._sheets.keys())
 
-    def get_sheet_data(self, sheet_name: str) -> SheetData:
+    def get_sheet_data(self, sheet_name: str) -> pd.DataFrame:
         if sheet_name not in self._sheets:
             raise ValueError(f"Sheet {sheet_name} not loaded")
         return self._sheets[sheet_name]
     
+
+    def modify_cell_data(self, sheet_name: str, row: int, col: int, value: Any):
+        """Modify a cell data in memory"""
+        if sheet_name not in self._sheets:
+            raise ValueError(f"Sheet {sheet_name} not loaded")
+
+        cell = self._sheets[sheet_name].iloc[row, col]
+        if cell is None:
+            cell = CellData(value)
+            self._sheets[sheet_name].iloc[row, col] = cell
+        else:
+            cell.value = value
+        cell.is_synced = False
+
+    def get_column_indexes(self, sheet_data: pd.DataFrame, column_names: List[str]) -> List[int]:
+        """Get the indexes of the context columns"""
+
+        column_indexes = []
+        for colIdx in sheet_data.columns:
+            column_name = sheet_data.iloc[0, colIdx].value
+            if any(col_name.lower() == column_name.lower() for col_name in column_names):
+                column_indexes.append(colIdx)
+
+        return column_indexes
+
+    def get_unsynced_cells(self, sheet_data: pd.DataFrame) -> Dict[str, Any]:
+        """Get all unsynced cells"""
+        updates = {}
+        for rowIdx, row in sheet_data.iterrows():
+            for colIdx, cell in enumerate(row):
+                if cell and not cell.is_synced:
+                    updates[f'{SheetIndex.to_column_letter(colIdx + 1)}{rowIdx + 2}'] = cell
+
+        return updates
+
+
+    #########################################################
+    ########## Cell value operations #######################
+    #########################################################
     def set_cell_value(self, sheet_name: str, cell_ref: str, value: Any):
         """Set a cell value in memory"""
         if sheet_name not in self._sheets:
@@ -209,7 +199,3 @@ class SheetsHandler:
         col_idx = SheetIndex.from_column_letter(column_letter) - 1
         self._sheets[sheet_name].add_column(col_idx, column_title)
 
-    def get_column_indexes(self, sheet_data: SheetData, column_names: List[str]) -> List[int]:
-        """Get the indexes of the context columns"""
-        return [i for i, col in enumerate(sheet_data.column_names) 
-            if any(col_name.lower() == col.lower() for col_name in column_names)]

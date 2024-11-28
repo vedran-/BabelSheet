@@ -106,11 +106,14 @@ def setup_logging(verbose_level: int):
 def async_command(f):
     """Decorator to run async click commands."""
     def wrapper(*args, **kwargs):
+        return asyncio.run(f(*args, **kwargs))
+        """
         try:
             return asyncio.run(f(*args, **kwargs))
         except Exception as e:
             logger.error(f"Error during async execution: {str(e)}")
             sys.exit(1)
+        """
     return wrapper
 
 @click.group()
@@ -169,20 +172,29 @@ async def translate(ctx, target_langs, verbose):
     
     # Initialize SheetsHandler
     creds = get_credentials()
-    ctx.sheets_handler = SheetsHandler(creds)
     ctx.spreadsheet_id = ctx.config['google_sheets']['spreadsheet_id']
-    ctx.sheets_handler.load_spreadsheet(ctx.spreadsheet_id)
+    ctx.sheets_handler = SheetsHandler(ctx, creds)
 
     # Initialize TermBaseHandler
-    try:
-        ctx.term_base_handler = TermBaseHandler(ctx)
-        logger.info(f"Successfully initialized term base handler with sheet: {ctx.term_base_handler.sheet_name}")
-    except Exception as e:
-        logger.warning(f"Failed to initialize term base handler: {e}")
-        logger.info("Proceeding without term base")
-        ctx.term_base_handler = None
+    ctx.term_base_handler = TermBaseHandler(ctx)
+    logger.info(f"Successfully initialized term base handler with sheet: {ctx.term_base_handler.sheet_name}")
 
-    #sys.exit()
+    #terms = ctx.term_base_handler.get_terms_for_language(ctx.target_langs[0])
+    #logger.info(terms)
+
+    print('----------------')
+    print(ctx.sheets_handler.get_sheet_data('Sheet1'))
+    ctx.sheets_handler.modify_cell_data('Sheet1', 1, 3, 'test')
+    print('----------------')
+    print(ctx.sheets_handler.get_sheet_data('Sheet1'))
+    ctx.sheets_handler.modify_cell_data('Sheet1', 2, 3, 'test2')
+    print('----------------')
+    print(ctx.sheets_handler.get_sheet_data('Sheet1'))
+    print('----------------')
+
+    ctx.sheets_handler.save_changes()
+
+    sys.exit()
 
     # Initialize TranslationManager with the config and handlers
     translation_manager = TranslationManager(
