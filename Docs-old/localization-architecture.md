@@ -27,7 +27,6 @@ class GoogleSheetsHandler:
 class TranslationManager:
     def __init__(self, openai_api_key: str, term_base_file: str)
     def detect_missing_translations(df: pd.DataFrame) -> Dict[str, List[int]]
-    def create_translation_prompt(text: str, context: str, term_base: Dict) -> str
     def translate_text(text: str, target_lang: str, context: str) -> str
     def batch_translate(texts: List[str], target_lang: str, contexts: List[str]) -> List[str]
 ```

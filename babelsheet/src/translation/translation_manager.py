@@ -17,8 +17,9 @@ class TranslationManager:
         self.llm_handler = LLMHandler(
             api_key=llm_config.get('api_key'),
             base_url=llm_config.get('api_url', "https://api.openai.com/v1"),
-            model=llm_config.get('model', 'gpt-4'),
-            temperature=llm_config.get('temperature', 0.3)
+            model=llm_config.get('model', 'o1-mini'),
+            temperature=llm_config.get('temperature', 0.3),
+            config=llm_config.get('config', {})
         )
         
         # Initialize QA Handler with LLM Handler
@@ -28,7 +29,7 @@ class TranslationManager:
         )
         
         # Get batch configuration
-        self.batch_size = llm_config.get('batch_size', 50)
+        self.batch_size = llm_config.get('batch_size', 10)
         self.batch_delay = llm_config.get('batch_delay', 1)
         self.max_retries = llm_config.get('max_retries', 3)
         self.retry_delay = llm_config.get('retry_delay', 1)  # seconds
@@ -60,32 +61,6 @@ class TranslationManager:
                 df[lang] = pd.NA
                 
         return missing_translations
-
-    def create_translation_prompt(self, text: str, context: str, 
-                                term_base: Dict[str, str],
-                                target_lang: str) -> str:
-        """Create a context-aware translation prompt."""
-        prompt = f"""You are a world-class expert in translating to {target_lang}, 
-specialized for casual mobile games. Translate the following text professionally:
-
-Text: {text}
-
-Context: {context}
-
-Term Base References:
-{json.dumps(term_base, indent=2)}
-
-Rules:
-- Use provided term base for consistency
-- Don't translate text between markup characters [] and {{}}
-- Keep appropriate format (uppercase/lowercase)
-- Replace newlines with \\n
-- Keep translations lighthearted and fun
-- Keep translations concise to fit UI elements
-- Localize all output text
-
-Translate the text maintaining all rules."""
-        return prompt
 
     async def translate_text(self, source_texts: List[str], source_lang: str, target_lang: str, 
                            contexts: List[str] = None, term_base: Dict[str, str] = None) -> List[Tuple[str, List[str]]]:
@@ -157,12 +132,12 @@ Term Base References:
 
 Rules:
 - Use provided term base for consistency
-- Don't translate text between markup characters [] and {{}}
+- Don't translate special terms which match the following patterns: {json.dumps(self.config['qa']['non_translatable_patterns'])}
 - Keep appropriate format (uppercase/lowercase)
 - Replace newlines with \\n
 - Keep translations lighthearted and fun
 - Keep translations concise to fit UI elements
-- Localize all output text
+- Localize all output text, except special terms between markup characters
 
 Translate each text maintaining all rules. Return translations in a structured format."""
 

@@ -16,6 +16,7 @@ BabelSheet is an automated translation tool for Google Sheets that uses AI to pr
   - Automated term base management
   - Quality assurance checks
   - Parallel validation processing
+  - Strict non-translatable terms validation
 - Efficient Processing
   - Batch processing with configurable size
   - Immediate batch updates
@@ -105,6 +106,11 @@ llm:
 
 qa:
   max_length: 1000  # Maximum length for QA validation
+  non_translatable_patterns:
+    - start: "{["   # Matches {[TERM]}
+      end: "]}"
+    - start: "<"    # Matches <TERM>
+      end: ">"
 
 term_base:
   sheet_name: "term_base"  # Name of the sheet containing term base

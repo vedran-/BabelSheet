@@ -5,7 +5,8 @@ import os
 
 class LLMHandler:
     def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1",
-                 model: str = "gpt-4", temperature: float = 0.3):
+                 model: str = "claude-3-5-sonnet", temperature: float = 0.3,
+                 config: Optional[Dict[str, bool]] = None):
         """Initialize the LLM Handler.
         
         Args:
@@ -13,12 +14,19 @@ class LLMHandler:
             base_url: Base URL for the API (default: OpenAI's URL)
             model: Model to use for translations
             temperature: Temperature parameter for generation
+            config: Configuration dictionary with keys:
+                - save_requests: Whether to save API requests to files
+                - save_responses: Whether to save API responses to files
         """
         self.api_key = api_key
         self.base_url = base_url.rstrip('/')  # Remove trailing slash if present
         self.model = model
         self.temperature = temperature
-        
+        self.config = config or {
+            "save_requests": False,
+            "save_responses": False
+        }
+
     async def generate_completion(self, 
                                 messages: list[Dict[str, str]], 
                                 json_schema: Optional[Dict] = None,
@@ -46,11 +54,15 @@ class LLMHandler:
         }
 
         if json_schema:
-            # Add system message to enforce JSON response
-            messages.insert(0, {
-                "role": "system",
-                "content": f"You must respond with valid JSON matching this schema: {json.dumps(json_schema)}"
-            })
+            # Add JSON schema requirement to system message or create new one
+            json_requirement = f"You must respond with valid JSON matching this schema: {json.dumps(json_schema)}"
+            if messages and messages[0]["role"] == "system":
+                messages[0]["content"] = messages[0]["content"] + "\n\n" + json_requirement
+            else:
+                messages.insert(0, {
+                    "role": "system", 
+                    "content": json_requirement
+                })
             
             # For newer models that support response_format
             if self.model.startswith(("gpt-4-1106", "gpt-3.5-turbo-1106")):
@@ -65,6 +77,15 @@ class LLMHandler:
                 }]
                 data["function_call"] = {"name": "process_response"}
         
+        # Save request data to timestamped JSON file
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        if self.config["save_requests"]:
+            filename = f"llm_{timestamp}_request.json"
+            with open(filename, "w") as f:
+                json.dump(data, f, indent=2)
+
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{self.base_url}/chat/completions",
@@ -74,8 +95,15 @@ class LLMHandler:
                 if response.status != 200:
                     error_text = await response.text()
                     raise Exception(f"LLM API call failed: {error_text}")
-                    
-                return await response.json()
+                
+                ret = await response.json()
+
+                if self.config["save_responses"]:
+                    filename = f"llm_{timestamp}_response.json"
+                    with open(filename, "w") as f:
+                        json.dump(ret, f, indent=2)
+
+                return ret
 
     def extract_structured_response(self, response: Dict[str, Any]) -> Any:
         """Extract and parse JSON response from the API response."""

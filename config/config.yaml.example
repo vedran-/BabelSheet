@@ -17,7 +17,14 @@ llm:
   batch_delay: 1    # Delay in seconds between processing batches
 
 qa:
-  max_length: 1000  # Maximum length for QA validation
+  max_length: 1000  # Maximum length for translations
+  non_translatable_patterns:  # Terms that must appear exactly the same in translations
+    - start: "{["   # Example: {[NUMBER]} must appear exactly as {[NUMBER]} in translation
+      end: "]}"
+    - start: "<"    # Example: <variable> must appear exactly as <variable> in translation
+      end: ">"
+    - start: "["    # Example: [TERM] must appear exactly as [TERM] in translation
+      end: "]"
 
 context_columns:
   patterns:
