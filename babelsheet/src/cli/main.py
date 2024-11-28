@@ -248,6 +248,7 @@ async def translate(ctx, target_langs, sheet_id, verbose, force):
                     texts=texts,
                     target_lang=lang,
                     contexts=contexts,
+                    term_base=term_base,
                     df=df,
                     row_indices=missing_indices
                 ):
@@ -258,6 +259,9 @@ async def translate(ctx, target_langs, sheet_id, verbose, force):
                             for issue in result['issues']:
                                 logger.debug(f"  - {issue}")
                     
+                    # Print token usage statistics at the end
+                    translation_manager.llm_handler.print_token_usage()
+
                     # Update the sheet with the translated data for this batch
                     logger.info(f"Updating sheet with batch {batch_results[0]['batch_number']} translations...")
                     sheets_handler.update_sheet(sheet_name, df)
@@ -266,6 +270,10 @@ async def translate(ctx, target_langs, sheet_id, verbose, force):
                 logger.info(f"Completed all translations for {lang}")
             
             logger.info(f"Completed processing sheet: {sheet_name}")
+        
+        # Print token usage statistics at the end
+        translation_manager.llm_handler.print_token_usage()
+        
     except Exception as e:
         logger.error(f"Error during translation: {str(e)}")
         raise

@@ -4,6 +4,10 @@ import json
 import os
 
 class LLMHandler:
+    # Class-level variables to track tokens across all instances
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+    
     def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1",
                  model: str = "claude-3-5-sonnet", temperature: float = 0.3,
                  config: Optional[Dict[str, bool]] = None):
@@ -26,6 +30,24 @@ class LLMHandler:
             "save_requests": False,
             "save_responses": False
         }
+
+    @classmethod
+    def get_token_usage(cls) -> Dict[str, int]:
+        """Get the total token usage."""
+        return {
+            "prompt_tokens": cls.total_prompt_tokens,
+            "completion_tokens": cls.total_completion_tokens,
+            "total_tokens": cls.total_prompt_tokens + cls.total_completion_tokens
+        }
+
+    @classmethod
+    def print_token_usage(cls) -> None:
+        """Print the total token usage statistics."""
+        usage = cls.get_token_usage()
+        print("\nToken Usage Statistics:")
+        print(f"Prompt Tokens:     {usage['prompt_tokens']:,}")
+        print(f"Completion Tokens: {usage['completion_tokens']:,}")
+        print(f"Total Tokens:      {usage['total_tokens']:,}")
 
     async def generate_completion(self, 
                                 messages: list[Dict[str, str]], 
@@ -97,6 +119,11 @@ class LLMHandler:
                     raise Exception(f"LLM API call failed: {error_text}")
                 
                 ret = await response.json()
+
+                # Update token counters if usage info is available
+                if "usage" in ret:
+                    LLMHandler.total_prompt_tokens += ret["usage"].get("prompt_tokens", 0)
+                    LLMHandler.total_completion_tokens += ret["usage"].get("completion_tokens", 0)
 
                 if self.config["save_responses"]:
                     filename = f"llm_{timestamp}_response.json"
