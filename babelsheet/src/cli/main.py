@@ -243,26 +243,27 @@ async def translate(ctx, target_langs, sheet_id, verbose, force):
                                 context_parts.append(str(df.loc[idx, col]))
                     contexts.append(" | ".join(context_parts))
                 
-                # Translate batch
-                translations = await translation_manager.batch_translate(
+                # Translate and process each batch
+                async for batch_results in translation_manager.batch_translate(
                     texts=texts,
                     target_lang=lang,
                     contexts=contexts,
                     df=df,
                     row_indices=missing_indices
-                )
+                ):
+                    # Log any translation issues
+                    for result in batch_results:
+                        if result.get('issues'):
+                            logger.debug(f"Translation issues for '{result['source_text']}' -> '{result['translated_text']}':")
+                            for issue in result['issues']:
+                                logger.debug(f"  - {issue}")
+                    
+                    # Update the sheet with the translated data for this batch
+                    logger.info(f"Updating sheet with batch {batch_results[0]['batch_number']} translations...")
+                    sheets_handler.update_sheet(sheet_name, df)
+                    logger.info(f"Batch {batch_results[0]['batch_number']} completed and saved")
                 
-                # Log any translation issues
-                for result in translations:
-                    if result.get('issues'):
-                        logger.debug(f"Translation issues for '{result['source_text']}' -> '{result['translated_text']}':")
-                        for issue in result['issues']:
-                            logger.debug(f"  - {issue}")
-                
-                # Update the sheet with the translated data
-                sheets_handler.update_sheet(sheet_name, df)
-                
-                logger.info(f"Completed translations for {lang}")
+                logger.info(f"Completed all translations for {lang}")
             
             logger.info(f"Completed processing sheet: {sheet_name}")
     except Exception as e:

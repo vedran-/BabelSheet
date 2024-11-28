@@ -242,8 +242,8 @@ Translate each text maintaining all rules. Return translations in a structured f
             df: Optional DataFrame to update with translations
             row_indices: Optional list of row indices for DataFrame updates
             
-        Returns:
-            List of dictionaries containing translations and metadata
+        Yields:
+            List of dictionaries containing translations and metadata for each batch
         """
         if contexts is None:
             contexts = [""] * len(texts)
@@ -256,7 +256,6 @@ Translate each text maintaining all rules. Return translations in a structured f
             if target_lang not in df.columns:
                 df[target_lang] = pd.NA
         
-        results = []
         for i in range(0, len(texts), self.batch_size):
             batch_texts = texts[i:i + self.batch_size]
             batch_contexts = contexts[i:i + self.batch_size]
@@ -285,17 +284,18 @@ Translate each text maintaining all rules. Return translations in a structured f
                     'translated_text': translation,
                     'context': context,
                     'issues': issues,
-                    'target_lang': target_lang
+                    'target_lang': target_lang,
+                    'needs_update': True,  # Signal that this batch needs to be written to sheets
+                    'batch_number': i//self.batch_size + 1
                 })
             
-            results.extend(batch_results)
+            # Signal that this batch is complete and should be written to sheets
+            yield batch_results
             
             # Apply batch delay if this is not the last batch
             if i + self.batch_size < len(texts):
                 logger.debug(f"Waiting {self.batch_delay} seconds before processing next batch...")
                 await asyncio.sleep(self.batch_delay)
-        
-        return results
 
     async def extract_terms(self, text: str, context: str, target_lang: str) -> Dict[str, Dict[str, str]]:
         """Extract potential terms from translated text."""
