@@ -4,7 +4,7 @@ import pandas as pd
 import json
 from ..utils.qa_handler import QAHandler
 from ..term_base.term_base_handler import TermBaseHandler
-from ..sheets.sheets_handler import GoogleSheetsHandler
+from ..sheets.sheets_handler import SheetsHandler
 from ..utils.auth import get_credentials
 import asyncio
 import logging
@@ -12,30 +12,20 @@ import logging
 logger = logging.getLogger(__name__)
 
 class TranslationManager:
-    def __init__(self, config: Dict, sheets_handler: Optional[GoogleSheetsHandler] = None, term_base_handler: Optional[TermBaseHandler] = None):
+    def __init__(self, config: Dict, sheets_handler: SheetsHandler, term_base_handler: TermBaseHandler):
         """Initialize Translation Manager.
         
         Args:
             config: Configuration dictionary containing all necessary settings
-            sheets_handler: Optional pre-initialized GoogleSheetsHandler
-            term_base_handler: Optional pre-initialized TermBaseHandler
+            sheets_handler: Pre-initialized SheetsHandler
+            term_base_handler: Pre-initialized TermBaseHandler
         """
         self.config = config
         self.logger = logging.getLogger(__name__)
         llm_config = config.get('llm', {})
-        google_sheets_config = config.get('google_sheets', {})
         
-        # Use provided sheets_handler or create new one
-        if sheets_handler:
-            self.sheets_handler = sheets_handler
-        else:
-            self.sheets_handler = GoogleSheetsHandler(
-                credentials=get_credentials()
-            )
-            # Set spreadsheet ID if provided in config
-            spreadsheet_id = google_sheets_config.get('spreadsheet_id')
-            if spreadsheet_id:
-                self.sheets_handler.set_spreadsheet(spreadsheet_id)
+        self.sheets_handler = sheets_handler
+        self.term_base_handler = term_base_handler
         
         # Initialize LLM Handler with correct parameters from config
         self.llm_handler = LLMHandler(
@@ -59,35 +49,7 @@ class TranslationManager:
         self.max_retries = llm_config.get('max_retries', 3)
         self.retry_delay = llm_config.get('retry_delay', 1)  # seconds
         
-        # Use provided term_base_handler or create new one
-        if term_base_handler:
-            self.term_base_handler = term_base_handler
-        else:
-            term_base_config = config.get('term_base', {})
-            try:
-                self.term_base_handler = TermBaseHandler(
-                    sheets_handler=self.sheets_handler,
-                    sheet_name=term_base_config.get('sheet_name', 'Term Base')
-                )
-            except Exception as e:
-                logger.error(f"Failed to initialize term base handler: {e}")
-                logger.info("Creating empty term base handler")
-                self.term_base_handler = None
-        
-    def set_spreadsheet_id(self, spreadsheet_id: str) -> None:
-        """Set the spreadsheet ID for the translation manager.
-        This can be called after initialization if spreadsheet ID wasn't provided in config.
-        
-        Args:
-            spreadsheet_id: The ID of the Google Sheet to use
-        """
-        if not spreadsheet_id:
-            raise ValueError("Spreadsheet ID cannot be empty")
-            
-        self.sheets_handler.set_spreadsheet(spreadsheet_id)
-        # Reload term base with new spreadsheet
-        self.term_base_handler.load_term_base()
-        
+
     def detect_missing_translations(self, df: pd.DataFrame, source_lang: str, target_langs: List[str]) -> Dict[str, List[int]]:
         """Detect missing translations in the DataFrame.
         

@@ -75,7 +75,7 @@ def create_test_sheet():
     })
     
     term_base_data = pd.DataFrame({
-        'EN TERM': ['coins', 'boss'],
+        'en': ['coins', 'boss'],
         'COMMENT': ['Game currency', 'Enemy type'],
         'es': ['monedas', 'jefe'],
         'fr': ['pièces', 'patron'],
