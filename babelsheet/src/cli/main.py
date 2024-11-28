@@ -248,22 +248,26 @@ async def translate(ctx, target_langs, sheet_id, verbose, force):
                     texts=texts,
                     target_lang=lang,
                     contexts=contexts,
-                    term_base=term_base
+                    df=df,
+                    row_indices=missing_indices
                 )
                 
-                # Update DataFrame with translations
-                df.loc[missing_indices, lang] = translations
+                # Log any translation issues
+                for result in translations:
+                    if result.get('issues'):
+                        logger.debug(f"Translation issues for '{result['source_text']}' -> '{result['translated_text']}':")
+                        for issue in result['issues']:
+                            logger.debug(f"  - {issue}")
                 
-                # Update sheet with new translations
-                sheets_handler.update_sheet_from_dataframe(sheet_name, df)
-                # Update cache with new translations
-                sheets_handler._sheet_cache[sheet_name] = df
+                # Update the sheet with the translated data
+                sheets_handler.update_sheet(sheet_name, df)
                 
                 logger.info(f"Completed translations for {lang}")
-                
+            
+            logger.info(f"Completed processing sheet: {sheet_name}")
     except Exception as e:
         logger.error(f"Error during translation: {str(e)}")
-        sys.exit(1)
+        raise
 
 @cli.command()
 @click.pass_context

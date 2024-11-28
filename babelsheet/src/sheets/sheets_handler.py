@@ -172,27 +172,60 @@ class GoogleSheetsHandler:
         ).execute()
 
     def write_translations(self, sheet_name: str, updates: Dict[str, Any]) -> None:
-        """Write translations back to the sheet."""
+        """Write translations back to the sheet.
+        
+        Args:
+            sheet_name: Name of the sheet to update
+            updates: Dictionary mapping cell ranges to values
+        """
         if not self.current_spreadsheet_id:
             raise ValueError("Spreadsheet ID not set")
 
         # Prepare the batch update
         batch_data = []
         for cell_range, value in updates.items():
+            # Extract only the translated text if a dictionary is provided
+            if isinstance(value, dict) and 'translated_text' in value:
+                value = value['translated_text']
+            elif isinstance(value, dict):
+                # If it's a dict but doesn't have translated_text, try to get the first string value
+                for v in value.values():
+                    if isinstance(v, str):
+                        value = v
+                        break
+                else:
+                    # If no string value found, skip this update
+                    logger.warning(f"Skipping update for {cell_range}: No valid translation found in {value}")
+                    continue
+            
+            # Ensure the value is a string
+            if not isinstance(value, (str, int, float)):
+                logger.warning(f"Skipping update for {cell_range}: Invalid value type {type(value)}")
+                continue
+                
             batch_data.append({
                 'range': f'{sheet_name}!{cell_range}',
-                'values': [[value]]
+                'values': [[str(value)]]
             })
+
+        if not batch_data:
+            logger.warning("No valid updates to perform")
+            return
 
         body = {
             'valueInputOption': 'USER_ENTERED',
             'data': batch_data
         }
 
-        self.service.spreadsheets().values().batchUpdate(
-            spreadsheetId=self.current_spreadsheet_id,
-            body=body
-        ).execute()
+        try:
+            self.service.spreadsheets().values().batchUpdate(
+                spreadsheetId=self.current_spreadsheet_id,
+                body=body
+            ).execute()
+            logger.info(f"Successfully updated {len(batch_data)} cells in {sheet_name}")
+        except Exception as e:
+            logger.error(f"Error updating sheet: {str(e)}")
+            raise
 
     def process_sheet(self, sheet_name: str, target_langs: List[str]) -> Dict[str, List[int]]:
         """Process sheet and return missing translations for each language."""

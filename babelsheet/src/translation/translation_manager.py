@@ -27,8 +27,11 @@ class TranslationManager:
             llm_handler=self.llm_handler
         )
         
-        self.max_retries = 3
-        self.retry_delay = 1  # seconds
+        # Get batch configuration
+        self.batch_size = llm_config.get('batch_size', 50)
+        self.batch_delay = llm_config.get('batch_delay', 1)
+        self.max_retries = llm_config.get('max_retries', 3)
+        self.retry_delay = llm_config.get('retry_delay', 1)  # seconds
         
     def detect_missing_translations(self, df: pd.DataFrame, 
                                   source_lang: str = 'en',
@@ -85,9 +88,7 @@ Translate the text maintaining all rules."""
         return prompt
 
     async def translate_text(self, source_text: str, source_lang: str, target_lang: str, 
-                            context: str = "", term_base: Dict[str, str] = None,
-                            df: Optional[pd.DataFrame] = None,
-                            row_idx: Optional[int] = None) -> Tuple[str, List[str]]:
+                           context: str = "", term_base: Dict[str, str] = None) -> Tuple[str, List[str]]:
         """Translate text and validate the translation."""
         retries = 0
         last_error = None
@@ -97,12 +98,6 @@ Translate the text maintaining all rules."""
                 translated_text, issues = await self._perform_translation(
                     source_text, source_lang, target_lang, context, term_base
                 )
-                
-                # Update DataFrame if provided
-                if df is not None and row_idx is not None:
-                    if target_lang not in df.columns:
-                        df[target_lang] = pd.NA
-                    df.at[row_idx, target_lang] = translated_text
                 
                 return translated_text, issues
             except Exception as e:
@@ -163,8 +158,21 @@ Translate the text maintaining all rules."""
     async def batch_translate(self, texts: List[str], target_lang: str,
                             contexts: List[str] = None,
                             term_base: Dict[str, str] = None,
-                            df: Optional[pd.DataFrame] = None) -> List[str]:
-        """Translate a batch of texts."""
+                            df: Optional[pd.DataFrame] = None,
+                            row_indices: Optional[List[int]] = None) -> List[Dict[str, Any]]:
+        """Translate a batch of texts with configurable batch size and delay.
+        
+        Args:
+            texts: List of texts to translate
+            target_lang: Target language code
+            contexts: Optional list of context strings for each text
+            term_base: Optional term base dictionary
+            df: Optional DataFrame to update with translations
+            row_indices: Optional list of row indices for DataFrame updates
+            
+        Returns:
+            List of dictionaries containing translations and metadata
+        """
         if contexts is None:
             contexts = [""] * len(texts)
         
@@ -175,26 +183,46 @@ Translate the text maintaining all rules."""
         if df is not None:
             if target_lang not in df.columns:
                 df[target_lang] = pd.NA
-                # Get indices of rows that need translation
-                source_lang = self.config['languages']['source']
-                indices_to_translate = df[df[source_lang].notna()].index.tolist()
-                # Update texts and contexts lists to include all rows needing translation
-                texts.extend([df.iloc[idx][source_lang] for idx in indices_to_translate])
-                contexts.extend([""] * len(indices_to_translate))
         
-        translations = []
-        for text, context in zip(texts, contexts):
-            translation, _ = await self.translate_text(
-                source_text=text,
-                source_lang=self.config['languages']['source'],
-                target_lang=target_lang,
-                context=context,
-                term_base=term_base,
-                df=df
-            )
-            translations.append(translation)
+        results = []
+        for i in range(0, len(texts), self.batch_size):
+            batch_texts = texts[i:i + self.batch_size]
+            batch_contexts = contexts[i:i + self.batch_size]
+            batch_indices = row_indices[i:i + self.batch_size] if row_indices else None
             
-        return translations
+            logger.info(f"Processing batch {i//self.batch_size + 1} of {(len(texts) + self.batch_size - 1)//self.batch_size}")
+            
+            # Process each text in the current batch
+            batch_results = []
+            for j, (text, context) in enumerate(zip(batch_texts, batch_contexts)):
+                translation, issues = await self.translate_text(
+                    source_text=text,
+                    source_lang=self.config['languages']['source'],
+                    target_lang=target_lang,
+                    context=context,
+                    term_base=term_base
+                )
+                
+                # Update DataFrame with just the translated text if row index is provided
+                if df is not None and batch_indices is not None:
+                    df.at[batch_indices[j], target_lang] = translation
+                
+                batch_results.append({
+                    'source_text': text,
+                    'translated_text': translation,
+                    'context': context,
+                    'issues': issues,
+                    'target_lang': target_lang
+                })
+            
+            results.extend(batch_results)
+            
+            # Apply batch delay if this is not the last batch
+            if i + self.batch_size < len(texts):
+                logger.debug(f"Waiting {self.batch_delay} seconds before processing next batch...")
+                await asyncio.sleep(self.batch_delay)
+        
+        return results
 
     async def extract_terms(self, text: str, context: str, target_lang: str) -> Dict[str, Dict[str, str]]:
         """Extract potential terms from translated text."""
@@ -250,50 +278,40 @@ Rules for term extraction:
         """Process a batch of translations with validation."""
         results = []
         
-        # First detect any missing translations if DataFrame is provided
-        if df is not None:
-            # Get all target languages from both existing translations and DataFrame columns
-            target_langs = set()
-            # Add languages from existing translations
-            target_langs.update(item['target_lang'] for item in translations)
-            # Add all non-source language columns from DataFrame
-            source_lang = self.config['languages']['source']
-            target_langs.update(col for col in df.columns if col != source_lang)
-            
-            missing_translations = self.detect_missing_translations(
-                df=df,
-                source_lang=source_lang,
-                target_langs=list(target_langs)  # Convert set back to list
-            )
-            
-            # Add any missing translations to the batch
-            for target_lang, missing_indices in missing_translations.items():
-                for idx in missing_indices:
-                    if df.iloc[idx][source_lang]:  # If source text exists
-                        translations.append({
-                            'source_text': df.iloc[idx][source_lang],
-                            'source_lang': source_lang,
-                            'target_lang': target_lang,
-                            'row_idx': idx  # Add row index for DataFrame updates
-                        })
-        
-        # Process all translations
+        # Group translations by target language for efficient batch processing
+        by_language = {}
         for item in translations:
-            translated_text, issues = await self.translate_text(
-                item['source_text'],
-                item['source_lang'],
-                item['target_lang'],
+            lang = item['target_lang']
+            if lang not in by_language:
+                by_language[lang] = []
+            by_language[lang].append(item)
+        
+        # Process each language group
+        for lang, items in by_language.items():
+            texts = []
+            contexts = []
+            row_indices = []
+            
+            # Extract texts, contexts, and row indices
+            for item in items:
+                texts.append(item['source_text'])
+                contexts.append(item.get('context', ''))
+                if 'row_idx' in item:
+                    row_indices.append(item['row_idx'])
+            
+            # Get term base for this language if available
+            term_base = {}  # You might want to implement term base lookup here
+            
+            # Process the batch
+            batch_results = await self.batch_translate(
+                texts=texts,
+                target_lang=lang,
+                contexts=contexts,
+                term_base=term_base,
                 df=df,
-                row_idx=item.get('row_idx')  # Pass row index if available
+                row_indices=row_indices if row_indices else None
             )
             
-            results.append({
-                'source_text': item['source_text'],
-                'translated_text': translated_text,
-                'source_lang': item['source_lang'],
-                'target_lang': item['target_lang'],
-                'validation_issues': issues,
-                'passed_validation': len(issues) == 0
-            })
-            
+            results.extend(batch_results)
+        
         return results
