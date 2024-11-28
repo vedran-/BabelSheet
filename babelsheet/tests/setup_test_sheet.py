@@ -94,4 +94,5 @@ def create_test_sheet():
 if __name__ == "__main__":
     spreadsheet_id = create_test_sheet()
     print("\nTest sheet setup complete!")
-    print(f"Use this spreadsheet ID for testing: {spreadsheet_id}") 
+    print(f"Use this spreadsheet ID for testing: {spreadsheet_id}")
+    print(f"Spreadsheet URL: https://docs.google.com/spreadsheets/d/{spreadsheet_id}")
