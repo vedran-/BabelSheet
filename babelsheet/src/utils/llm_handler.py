@@ -49,6 +49,12 @@ class LLMHandler:
         print(f"Completion Tokens: {usage['completion_tokens']:,}")
         print(f"Total Tokens:      {usage['total_tokens']:,}")
 
+    def dump_json_to_file(self, data: Dict[str, Any], filename: str) -> None:
+        json_str = json.dumps(data, indent=2, ensure_ascii=False)
+        json_str = json_str.replace('\\n', '\n')
+        with open(filename, "w", encoding='utf-8') as f:
+            f.write(json_str)
+
     async def generate_completion(self, 
                                 messages: list[Dict[str, str]], 
                                 json_schema: Optional[Dict] = None,
@@ -105,8 +111,7 @@ class LLMHandler:
 
         if self.config["save_requests"]:
             filename = f"llm_{timestamp}_request.json"
-            with open(filename, "w") as f:
-                json.dump(data, f, indent=2)
+            self.dump_json_to_file(data, filename)
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -127,8 +132,7 @@ class LLMHandler:
 
                 if self.config["save_responses"]:
                     filename = f"llm_{timestamp}_response.json"
-                    with open(filename, "w") as f:
-                        json.dump(ret, f, indent=2)
+                    self.dump_json_to_file(ret, filename)
 
                 return ret
 

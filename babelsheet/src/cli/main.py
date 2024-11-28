@@ -47,7 +47,6 @@ def validate_config(config, sheet_id_from_cli=None):
         },
         'llm': {
             'api_url': str,
-            'model': str,
             'temperature': (int, float)
         }
     }

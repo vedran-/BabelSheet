@@ -19,7 +19,7 @@ class TranslationManager:
             base_url=llm_config.get('api_url', "https://api.openai.com/v1"),
             model=llm_config.get('model', 'o1-mini'),
             temperature=llm_config.get('temperature', 0.3),
-            config=llm_config.get('config', {})
+            config=llm_config
         )
         
         # Initialize QA Handler with LLM Handler
@@ -91,7 +91,12 @@ class TranslationManager:
                     source_texts, source_lang, target_lang, contexts, term_base
                 )
                 return results
-            except Exception as e:
+            except (
+                TimeoutError,  # Network timeouts
+                ConnectionError,  # Connection issues
+                json.JSONDecodeError,  # Response parsing errors
+                asyncio.TimeoutError,  # Async timeouts
+            ) as e:
                 last_error = e
                 retries += 1
                 if retries == self.max_retries:
@@ -132,7 +137,7 @@ Term Base References:
 
 Rules:
 - Use provided term base for consistency
-- Don't translate special terms which match the following patterns: {json.dumps(self.config['qa']['non_translatable_patterns'])}
+- Don't translate special terms which match the following patterns: {str(self.config['qa']['non_translatable_patterns'])}
 - Keep appropriate format (uppercase/lowercase)
 - Replace newlines with \\n
 - Keep translations lighthearted and fun
@@ -170,7 +175,7 @@ Translate each text maintaining all rules. Return translations in a structured f
 
         response = await self.llm_handler.generate_completion(
             messages=[
-                {"role": "system", "content": f"You are a professional translator for {target_lang}."},
+                {"role": "system", "content": f"You are a world-class expert in translating to {target_lang}."},
                 {"role": "user", "content": prompt}
             ],
             json_schema=translation_schema
