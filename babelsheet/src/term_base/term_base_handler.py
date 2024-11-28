@@ -143,17 +143,23 @@ class TermBaseHandler:
                 }
         return terms
     
-    def add_term(self, term: str, comment: str = "", 
-                 translations: Dict[str, str] = None) -> None:
-        """Add a new term to the term base."""
+    def add_term(self, term: str, comment: str = "", translations: Dict[str, str] = None) -> None:
+        """Add a new term to the term base or update translations for an existing term.
+        
+        Args:
+            term: The term to add or update
+            comment: Comment about the term (only used for new terms)
+            translations: Dictionary mapping language codes to translations
+        """
         if translations is None:
             translations = {}
             
         # Update local cache
         if term in self.term_base:
-            self.term_base[term]['comment'] = comment
+            # For existing terms, only update translations
             self.term_base[term]['translations'].update(translations)
         else:
+            # For new terms, set both comment and translations
             self.term_base[term] = {
                 'comment': comment,
                 'translations': translations

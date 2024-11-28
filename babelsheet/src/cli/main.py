@@ -308,13 +308,12 @@ def init(ctx):
         click.echo("Created default configuration file")
     
     click.echo("Initializing Google authentication...")
-    auth = GoogleAuth(
-        credentials_file=ctx.obj['config']['google_sheets']['credentials_file'],
-        token_file=ctx.obj['config']['google_sheets']['token_file'],
-        scopes=ctx.obj['config']['google_sheets']['scopes']
-    )
-    auth.authenticate()
-    click.echo("Authentication successful")
+    try:
+        creds = get_credentials()
+        click.echo("Authentication successful")
+    except Exception as e:
+        click.echo(f"Authentication failed: {str(e)}")
+        sys.exit(1)
 
 def main():
     """Entry point for the CLI."""

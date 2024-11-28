@@ -21,6 +21,7 @@ class TranslationManager:
             term_base_handler: Optional pre-initialized TermBaseHandler
         """
         self.config = config
+        self.logger = logging.getLogger(__name__)
         llm_config = config.get('llm', {})
         google_sheets_config = config.get('google_sheets', {})
         
@@ -87,32 +88,42 @@ class TranslationManager:
         # Reload term base with new spreadsheet
         self.term_base_handler.load_term_base()
         
-    def detect_missing_translations(self, df: pd.DataFrame, 
-                                  source_lang: str = 'en',
-                                  target_langs: List[str] = None) -> Dict[str, List[int]]:
-        """Detect missing translations in the dataframe."""
+    def detect_missing_translations(self, df: pd.DataFrame, source_lang: str, target_langs: List[str]) -> Dict[str, List[int]]:
+        """Detect missing translations in the DataFrame.
+        
+        Args:
+            df: DataFrame containing translations
+            source_lang: Source language code
+            target_langs: List of target language codes
+            
+        Returns:
+            Dictionary mapping language codes to lists of row indices with missing translations
+        """
         missing_translations = {}
         
-        if target_langs is None:
-            # Get all language columns except source
-            target_langs = [col for col in df.columns if col != source_lang]
+        # Normalize language codes
+        source_lang = source_lang.lower()
+        target_langs = [lang.lower() for lang in target_langs]
         
-        # Ensure source_lang exists
-        if source_lang not in df.columns:
-            raise ValueError(f"Source language column '{source_lang}' not found in dataframe")
-        
+        # Check each target language
         for lang in target_langs:
-            if lang in df.columns:
-                # Find rows where target language is empty but source has content
-                missing_mask = df[lang].isna() & df[source_lang].notna()
-                missing_translations[lang] = df[missing_mask].index.tolist()
-            else:
-                # If column doesn't exist, all rows with source content need translation
-                source_content_mask = df[source_lang].notna()
-                missing_translations[lang] = df[source_content_mask].index.tolist()
-                # Add the missing column to the dataframe
-                df[lang] = pd.NA
-                
+            missing_translations[lang] = []
+            
+            # Skip if target language column doesn't exist
+            if lang not in df.columns:
+                missing_translations[lang].extend(range(len(df)))
+                continue
+            
+            # Check each row
+            for idx in range(len(df)):
+                # Skip if source text is empty
+                if pd.isna(df.iloc[idx][source_lang]):
+                    continue
+                    
+                # Check if translation is missing or empty
+                if pd.isna(df.iloc[idx][lang]) or str(df.iloc[idx][lang]).strip() == '':
+                    missing_translations[lang].append(idx)
+        
         return missing_translations
 
     async def translate_text(self, source_texts: List[str], source_lang: str, target_lang: str, 
@@ -196,7 +207,17 @@ Rules:
 - Keep translations concise to fit UI elements
 - Localize all output text, except special terms between markup characters
 
-Translate each text maintaining all rules. Return translations in a structured format."""
+Additionally:
+- Identify any important unique terms in the source text that should be added to the term base, like character names, item names, etc.
+- For each suggested term, provide:
+  * The term in the source language
+  * A suggested translation
+  * A brief comment explaining its usage/context
+  * Only suggest game-specific terms or terms requiring consistent translation
+  * Don't suggest terms that are already in the term base
+  * Don't suggest special terms that match the non-translatable patterns
+
+Translate each text maintaining all rules. Return translations and term suggestions in a structured format."""
 
         translation_schema = {
             "type": "object",
@@ -220,6 +241,28 @@ Translate each text maintaining all rules. Return translations in a structured f
                         },
                         "required": ["translation"]
                     }
+                },
+                "term_suggestions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "source_term": {
+                                "type": "string",
+                                "description": "The term in the source language"
+                            },
+                            "suggested_translation": {
+                                "type": "string",
+                                "description": "Suggested translation for the term"
+                            },
+                            "comment": {
+                                "type": "string",
+                                "description": "Brief explanation of term usage/context"
+                            }
+                        },
+                        "required": ["source_term", "suggested_translation", "comment"]
+                    },
+                    "description": "Suggested terms to add to the term base"
                 }
             },
             "required": ["translations"]
@@ -235,6 +278,17 @@ Translate each text maintaining all rules. Return translations in a structured f
         
         result = self.llm_handler.extract_structured_response(response)
         translations = result["translations"]
+        term_suggestions = result.get("term_suggestions", [])
+        
+        # Update term base with suggestions if we have a term base handler
+        if self.term_base_handler and term_suggestions:
+            for term in term_suggestions:
+                self.term_base_handler.add_term(
+                    term=term["source_term"],
+                    comment=term["comment"],
+                    translations={target_lang: term["suggested_translation"]}
+                )
+            self.logger.info(f"Added {len(term_suggestions)} new terms to the term base")
         
         # Validate all translations in parallel
         validation_tasks = []
@@ -333,57 +387,6 @@ Translate each text maintaining all rules. Return translations in a structured f
             if i + self.batch_size < len(texts):
                 logger.debug(f"Waiting {self.batch_delay} seconds before processing next batch...")
                 await asyncio.sleep(self.batch_delay)
-
-    async def extract_terms(self, text: str, context: str, target_lang: str) -> Dict[str, Dict[str, str]]:
-        """Extract potential terms from translated text."""
-        prompt = f"""Analyze this text and its translation for any important terms that should be added to the term base.
-Only extract terms that are specific to games or require consistent translation.
-
-Original Text: {text}
-Context: {context}
-
-Rules for term extraction:
-- Only extract terms that need consistent translation
-- Focus on game-specific terminology
-- Include proper nouns that need consistent translation
-- Don't include common words or phrases
-- Don't include special terms which match the following patterns: {str(self.config['qa']['non_translatable_patterns'])}
-"""
-
-        terms_schema = {
-            "type": "object",
-            "properties": {
-                "terms": {
-                    "type": "object",
-                    "patternProperties": {
-                        "^.*$": {
-                            "type": "object",
-                            "properties": {
-                                "comment": {"type": "string"}
-                            },
-                            "required": ["comment"]
-                        }
-                    }
-                }
-            },
-            "required": ["terms"]
-        }
-
-        try:
-            response = await self.llm_handler.generate_completion(
-                messages=[
-                    {"role": "system", "content": "You are a terminology extraction expert."},
-                    {"role": "user", "content": prompt}
-                ],
-                json_schema=terms_schema
-            )
-            
-            result = self.llm_handler.extract_structured_response(response)
-            return result["terms"]
-            
-        except Exception as e:
-            print(f"Term extraction failed: {e}")
-            return {}
 
     async def process_translations(self, translations: List[Dict], df: Optional[pd.DataFrame] = None) -> List[Dict]:
         """Process a batch of translations with validation.

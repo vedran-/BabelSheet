@@ -106,18 +106,31 @@
 
 ## 4. Test Execution
 
-1. Create test sheet:
+1. Set up test environment:
 ```bash
+# Create and populate test Google Sheet
+python -m babelsheet.tests.setup_test_sheet
+# This will output a spreadsheet ID to use in subsequent tests
+```
+
+2. Run CLI tests:
+```bash
+# Run all tests
+pytest babelsheet/tests/test_cli.py -v
+
+# Run specific test
+pytest babelsheet/tests/test_cli.py -v -k "test_translate_dry_run"
+```
+
+3. Manual testing steps:
+```bash
+# Initialize with the created test sheet
 python -m babelsheet init --sheet-id="<test-sheet-id>"
-```
 
-2. Run basic translation:
-```bash
+# Run basic translation
 python -m babelsheet translate --sheet-id="<test-sheet-id>" --target-langs="es"
-```
 
-3. Run full translation:
-```bash
+# Run full translation
 python -m babelsheet translate --sheet-id="<test-sheet-id>" --target-langs="es,fr,de"
 ```
 

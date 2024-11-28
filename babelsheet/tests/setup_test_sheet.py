@@ -34,7 +34,7 @@ def create_test_sheet():
             {'properties': {'title': 'Sheet1'}},
             {'properties': {'title': 'Sheet2'}},
             {'properties': {'title': 'Sheet3'}},
-            {'properties': {'title': 'term_base'}}
+            {'properties': {'title': '[E] Term Base'}}
         ]
     }
     
@@ -48,21 +48,21 @@ def create_test_sheet():
     
     # Prepare test data
     sheet1_data = pd.DataFrame({
-        'key': ['key1', 'key2', 'key3'],
-        'en': ['Hello', 'Start Game', 'Continue'],
-        'es': ['', '', ''],
-        'fr': ['', '', ''],
-        'de': ['', '', ''],
-        'context': ['', 'Button text', 'Menu option']
+        'key': ['key1', 'key2', 'key3', 'key4', 'key5', 'key6'  ],
+        'en': ['Hello', 'Start Game', 'Continue', 'Defeat the boss!', 'More coins, more problems!', 'Slow Joe was here!'],
+        'es': ['', '', '', '', '', ''],
+        'fr': ['', '', '', '', '', ''],
+        'de': ['', '', '', '', '', ''],
+        'context': ['', 'Button text', 'Menu option', 'Game text', 'Dialogue', 'Comment']
     })
     
     sheet2_data = pd.DataFrame({
-        'key': ['key1', 'key2', 'key3'],
-        'en': ['{[COINS]} collected', '[PLAYER] wins!', 'Level {[NUMBER]}'],
-        'es': ['', '', ''],
-        'fr': ['', '', ''],
-        'de': ['', '', ''],
-        'context': ['HUD text', 'Victory screen', 'Level indicator']
+        'key': ['key1', 'key2', 'key3', 'key4'],
+        'en': ['{[COINS]} collected', '[PLAYER] wins!', 'Level {[NUMBER]}', 'You have <NUMBER> coins'],
+        'es': ['', '', '', ''],
+        'fr': ['', '', '', ''],
+        'de': ['', '', '', ''],
+        'context': ['HUD text', 'Victory screen', 'Level indicator', 'Amount of coins the player has']
     })
     
     sheet3_data = pd.DataFrame({
@@ -77,16 +77,16 @@ def create_test_sheet():
     term_base_data = pd.DataFrame({
         'EN TERM': ['coins', 'boss'],
         'COMMENT': ['Game currency', 'Enemy type'],
-        'TRANSLATION_ES': ['monedas', 'jefe'],
-        'TRANSLATION_FR': ['pièces', 'patron'],
-        'TRANSLATION_DE': ['Münzen', 'Boss']
+        'es': ['monedas', 'jefe'],
+        'fr': ['pièces', 'patron'],
+        'de': ['Münzen', 'Boss']
     })
     
     # Update sheets
     handler.update_sheet('Sheet1', sheet1_data)
     handler.update_sheet('Sheet2', sheet2_data)
     handler.update_sheet('Sheet3', sheet3_data)
-    handler.update_sheet('term_base', term_base_data)
+    handler.update_sheet('[E] Term Base', term_base_data)
     
     print("Test data populated successfully")
     return spreadsheet_id
