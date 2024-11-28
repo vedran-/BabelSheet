@@ -4,13 +4,22 @@ BabelSheet is an automated translation tool for Google Sheets that uses AI to pr
 
 ## Features
 
-- Direct integration with Google Sheets
-- AI-powered translations with context awareness
-- Automated term base management
-- Quality assurance checks
-- Support for custom LLM endpoints
-- Google Translate fallback
-- Batch processing capabilities
+- Seamless Google Sheets Integration
+  - Direct read/write access to your spreadsheets
+  - Automated column management
+  - Real-time updates
+- Advanced Translation Capabilities
+  - AI-powered translations with context awareness
+  - Support for cloud LLMs (OpenAI, Anthropic Claude)
+  - Optional local LLM support
+- Quality Control
+  - Automated term base management
+  - Quality assurance checks
+  - Parallel validation processing
+- Efficient Processing
+  - Batch processing with configurable size
+  - Immediate batch updates
+  - Error resilience
 
 ## Installation
 
@@ -38,6 +47,21 @@ source venv/bin/activate
 ```bash
 pip install -e .
 ```
+
+## Sheet Structure
+
+### Translation Sheets
+- Each sheet should have these columns:
+  - A key column (usually 'key' or 'id')
+  - Source language column (e.g., 'en' for English)
+  - Target language columns (e.g., 'es' for Spanish)
+  - Optional context columns (matched by patterns in config)
+
+### Term Base Sheet
+- Must contain these columns:
+  - EN TERM: The English term
+  - COMMENT: Context or usage notes
+  - TRANSLATION_XX: Translation columns (e.g., TRANSLATION_ES for Spanish)
 
 ## Configuration
 
@@ -70,11 +94,17 @@ google_sheets:
     - "https://www.googleapis.com/auth/drive.readonly"
 
 llm:
-  provider: "openai"
   api_key: ""  # Set via LLM_API_KEY environment variable
-  model: "gpt-4"
-  temperature: 0.3
-  api_url: "https://api.openai.com/v1"  # Optional: Change for custom LLM endpoint
+  model: "o1-mini"  # The LLM model to use
+  temperature: 0.3  # Controls randomness in responses
+  api_url: "https://api.openai.com/v1"  # LLM API endpoint
+  max_retries: 3    # Maximum retry attempts
+  retry_delay: 1    # Initial delay between retries
+  batch_size: 50    # Number of rows to process in a batch
+  batch_delay: 1    # Delay between batches
+
+qa:
+  max_length: 1000  # Maximum length for QA validation
 
 term_base:
   sheet_name: "term_base"  # Name of the sheet containing term base
@@ -84,7 +114,71 @@ term_base:
     translation_prefix: "TRANSLATION_"
 ```
 
-4. Set your LLM API key:
+Place the downloaded credentials.json file in the config directory.
+
+## Usage
+
+1. LLM Compatibility
+2. Batch Processing
+3. Quality Assurance
+4. Error Handling
+5. Troubleshooting
+6. Development
+7. Contributing
+8. License
+
+## LLM Compatibility
+
+BabelSheet supports any LLM that provides an OpenAI-compatible API endpoint. Here are some examples:
+
+### Local LLMs
+
+NOTE: Local LLMs are not recommended for production use, as they are not as good as top-tier cloud LLMs, like OpenAI, Anthropic, or Google.
+
+1. **LM Studio**:
+```yaml
+llm:
+  api_key: "not-needed"  # Can be any string
+  model: "local-model"   # Will be ignored, model is selected in LM Studio
+  api_url: "http://localhost:1234/v1"  # Default LM Studio port
+```
+
+2. **Ollama**:
+```yaml
+llm:
+  api_key: "not-needed"
+  model: "mistral"  # Or any other model you have pulled
+  api_url: "http://localhost:11434/v1"  # Ollama with OpenAI compatibility
+```
+
+### Cloud Services
+
+1. **Anthropic Claude**:
+```yaml
+llm:
+  api_key: "your-anthropic-key"
+  model: "claude-3-5-sonnet-20241022"  # or claude-3-5-sonnet-20240620
+  api_url: "https://api.anthropic.com/v1"
+```
+
+2. **OpenAI**:
+```yaml
+llm:
+  api_key: "your-openai-key"
+  model: "o1-mini"  # or gpt-4o, gpt-4o-mini, o1-preview
+  api_url: "https://api.openai.com/v1"
+```
+
+3. **Azure OpenAI**:
+```yaml
+llm:
+  api_key: "your-azure-key"
+  model: "your-deployment-name"
+  api_url: "https://your-resource.openai.azure.com/openai/deployments/your-deployment-name"
+```
+
+
+4. **Set your LLM API key**:
 
 On Windows (PowerShell):
 ```powershell
@@ -96,17 +190,6 @@ On Unix/MacOS:
 export LLM_API_KEY=your-api-key
 ```
 
-## First Run
-
-On first run, the tool will:
-1. Open your browser for Google authentication
-2. Save the authentication token for future use
-3. Create necessary files and directories
-
-```bash
-python -m babelsheet init
-```
-
 ## Usage
 
 1. Prepare your Google Sheet:
@@ -114,20 +197,28 @@ python -m babelsheet init
    - Add a 'term_base' sheet with columns: EN TERM, COMMENT, TRANSLATION_XX
    - Make sure you have 'key', 'en', and target language columns
 
-2. Translate missing texts:
+2. Initialize the tool:
+```bash
+python -m babelsheet init
+```
+
+3. Translate missing texts:
 ```bash
 # Basic translation
 python -m babelsheet translate --sheet-id="your-sheet-id" --target-langs="es,fr,de"
 
-# With options
+# With batch processing options
 python -m babelsheet translate \
     --sheet-id="your-sheet-id" \
     --target-langs="es,fr,de" \
     --force  # Add missing columns without confirmation
-    --dry-run  # Show what would be done without making changes
 
 # Preview changes
 python -m babelsheet translate --sheet-id="your-sheet-id" --target-langs="es" --dry-run
+
+# Translate with specific batch size
+# Edit config.yaml to set batch_size: 3
+python -m babelsheet translate --sheet-id="your-sheet-id" --target-langs="es,fr,de"
 ```
 
 ### CLI Options
@@ -143,13 +234,38 @@ python -m babelsheet translate --sheet-id="your-sheet-id" --target-langs="es" --
   - A key column (usually 'key' or 'id')
   - Source language column (e.g., 'en' for English)
   - Target language columns (e.g., 'es' for Spanish)
-  - Optional context column
+  - Optional context columns (matched by patterns in config)
 
 ### Term Base Sheet
 - Must contain these columns:
   - EN TERM: The English term
   - COMMENT: Context or usage notes
   - TRANSLATION_XX: Translation columns (e.g., TRANSLATION_ES for Spanish)
+
+## Batch Processing
+
+The application supports batch processing of translations to optimize API usage and performance. For best translation quality, we recommend:
+- Batch size: 5-20 rows (default: 10)
+- Configure in config.yaml:
+```yaml
+llm:
+  batch_size: 10    # Recommended range: 5-20
+  batch_delay: 1    # Delay between batches in seconds
+```
+
+
+2. **Batch Flow**:
+   - Texts are grouped into batches
+   - Each batch is translated together
+   - Translations are validated in parallel
+   - Results are written to Google Sheets immediately
+   - Process continues with next batch
+
+3. **Benefits**:
+   - Efficient resource usage
+   - Immediate feedback
+   - Progress visibility
+   - Error resilience
 
 ## Quality Assurance
 
@@ -159,12 +275,15 @@ The tool automatically checks:
 - Term base compliance
 - Character limits
 - Newline handling
+- Cultural appropriateness
+- Translation accuracy
 
 ## Error Handling
 
 - Authentication errors will prompt for re-authentication
-- Translation failures will fall back to Google Translate if enabled
-- QA issues will trigger a retry with specific feedback
+- Translation failures are retried with exponential backoff
+- Batch failures don't affect other batches
+- QA issues trigger retranslation
 - All errors are logged for review
 
 ## Troubleshooting
@@ -184,18 +303,14 @@ Common issues:
    - Verify LLM_API_KEY environment variable is set
    - Check API endpoint URL in config.yaml
    - Verify API key permissions
+   - Check if local LLM server is running
+   - Verify model name matches your setup
 
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+4. Batch processing issues:
+   - Check batch_size in config.yaml
+   - Verify network stability
+   - Check LLM server capacity
+   - Monitor memory usage
 
 ## Development
 
@@ -221,4 +336,17 @@ export LLM_API_KEY="your-api-key"
 pytest babelsheet/tests/ --integration
 ```
 
-Note: Integration tests will modify the test sheet. Use a dedicated test sheet, not a production one. 
+Note: Integration tests will modify the test sheet. Use a dedicated test sheet, not a production one.
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
