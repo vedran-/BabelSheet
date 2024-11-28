@@ -87,19 +87,35 @@ Rules:
 Translate the text maintaining all rules."""
         return prompt
 
-    async def translate_text(self, source_text: str, source_lang: str, target_lang: str, 
-                           context: str = "", term_base: Dict[str, str] = None) -> Tuple[str, List[str]]:
-        """Translate text and validate the translation."""
+    async def translate_text(self, source_texts: List[str], source_lang: str, target_lang: str, 
+                           contexts: List[str] = None, term_base: Dict[str, str] = None) -> List[Tuple[str, List[str]]]:
+        """Translate a batch of texts and validate the translations.
+        
+        Args:
+            source_texts: List of texts to translate
+            source_lang: Source language code
+            target_lang: Target language code
+            contexts: Optional list of context strings for each text
+            term_base: Optional term base dictionary
+            
+        Returns:
+            List of tuples containing (translated_text, issues) for each input text
+        """
+        if contexts is None:
+            contexts = [""] * len(source_texts)
+            
+        if len(contexts) != len(source_texts):
+            raise ValueError("Number of contexts must match number of source texts")
+            
         retries = 0
         last_error = None
         
         while retries < self.max_retries:
             try:
-                translated_text, issues = await self._perform_translation(
-                    source_text, source_lang, target_lang, context, term_base
+                results = await self._perform_translation(
+                    source_texts, source_lang, target_lang, contexts, term_base
                 )
-                
-                return translated_text, issues
+                return results
             except Exception as e:
                 last_error = e
                 retries += 1
@@ -109,28 +125,72 @@ Translate the text maintaining all rules."""
                 logger.warning(f"Translation attempt {retries} failed, retrying in {self.retry_delay} seconds...")
                 await asyncio.sleep(self.retry_delay * retries)  # Exponential backoff
 
-    async def _perform_translation(self, source_text: str, source_lang: str, 
-                                 target_lang: str, context: str,
-                                 term_base: Dict[str, str] = None) -> Tuple[str, List[str]]:
-        """Internal method to perform the actual translation."""
-        prompt = self.create_translation_prompt(source_text, context, term_base or {}, target_lang)
+    async def _perform_translation(self, source_texts: List[str], source_lang: str, 
+                                 target_lang: str, contexts: List[str],
+                                 term_base: Dict[str, str] = None) -> List[Tuple[str, List[str]]]:
+        """Internal method to perform batch translation.
         
+        Args:
+            source_texts: List of texts to translate
+            source_lang: Source language code
+            target_lang: Target language code
+            contexts: List of context strings for each text
+            term_base: Optional term base dictionary
+            
+        Returns:
+            List of tuples containing (translated_text, issues) for each input text
+        """
+        # Create a combined prompt for all texts
+        texts_with_contexts = []
+        for i, (text, context) in enumerate(zip(source_texts, contexts)):
+            texts_with_contexts.append(f"Text {i+1}: {text}\nContext {i+1}: {context}")
+        
+        combined_texts = "\n\n".join(texts_with_contexts)
+        
+        prompt = f"""You are a world-class expert in translating to {target_lang}, 
+specialized for casual mobile games. Translate the following texts professionally:
+
+{combined_texts}
+
+Term Base References:
+{json.dumps(term_base, indent=2)}
+
+Rules:
+- Use provided term base for consistency
+- Don't translate text between markup characters [] and {{}}
+- Keep appropriate format (uppercase/lowercase)
+- Replace newlines with \\n
+- Keep translations lighthearted and fun
+- Keep translations concise to fit UI elements
+- Localize all output text
+
+Translate each text maintaining all rules. Return translations in a structured format."""
+
         translation_schema = {
             "type": "object",
             "properties": {
-                "translation": {
-                    "type": "string",
-                    "description": "The translated text"
-                },
-                "notes": {
+                "translations": {
                     "type": "array",
                     "items": {
-                        "type": "string"
-                    },
-                    "description": "Any translator notes or warnings"
+                        "type": "object",
+                        "properties": {
+                            "translation": {
+                                "type": "string",
+                                "description": "The translated text"
+                            },
+                            "notes": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "description": "Any translator notes or warnings"
+                            }
+                        },
+                        "required": ["translation"]
+                    }
                 }
             },
-            "required": ["translation"]
+            "required": ["translations"]
         }
 
         response = await self.llm_handler.generate_completion(
@@ -142,18 +202,30 @@ Translate the text maintaining all rules."""
         )
         
         result = self.llm_handler.extract_structured_response(response)
-        translated_text = result["translation"]
-        translator_notes = result.get("notes", [])
+        translations = result["translations"]
         
-        # Validate the translation
-        issues = await self.qa_handler.validate_translation(
-            source_text=source_text,
-            translated_text=translated_text,
-            term_base=term_base,
-            skip_llm_on_issues=False
-        )
+        # Validate all translations in parallel
+        validation_tasks = []
+        for i, source_text in enumerate(source_texts):
+            translated_text = translations[i]["translation"]
+            task = self.qa_handler.validate_translation(
+                source_text=source_text,
+                translated_text=translated_text,
+                term_base=term_base,
+                skip_llm_on_issues=False
+            )
+            validation_tasks.append(task)
         
-        return translated_text, translator_notes + issues
+        validation_results = await asyncio.gather(*validation_tasks)
+        
+        # Combine translations with their validation results
+        results = []
+        for i, (translation_result, validation_issues) in enumerate(zip(translations, validation_results)):
+            translated_text = translation_result["translation"]
+            translator_notes = translation_result.get("notes", [])
+            results.append((translated_text, translator_notes + validation_issues))
+        
+        return results
 
     async def batch_translate(self, texts: List[str], target_lang: str,
                             contexts: List[str] = None,
@@ -192,17 +264,18 @@ Translate the text maintaining all rules."""
             
             logger.info(f"Processing batch {i//self.batch_size + 1} of {(len(texts) + self.batch_size - 1)//self.batch_size}")
             
-            # Process each text in the current batch
+            # Process the entire batch at once
+            batch_translations = await self.translate_text(
+                source_texts=batch_texts,
+                source_lang=self.config['languages']['source'],
+                target_lang=target_lang,
+                contexts=batch_contexts,
+                term_base=term_base
+            )
+            
+            # Process results and update DataFrame
             batch_results = []
-            for j, (text, context) in enumerate(zip(batch_texts, batch_contexts)):
-                translation, issues = await self.translate_text(
-                    source_text=text,
-                    source_lang=self.config['languages']['source'],
-                    target_lang=target_lang,
-                    context=context,
-                    term_base=term_base
-                )
-                
+            for j, (text, context, (translation, issues)) in enumerate(zip(batch_texts, batch_contexts, batch_translations)):
                 # Update DataFrame with just the translated text if row index is provided
                 if df is not None and batch_indices is not None:
                     df.at[batch_indices[j], target_lang] = translation
