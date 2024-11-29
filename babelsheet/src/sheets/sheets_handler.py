@@ -16,6 +16,9 @@ class CellData:
     
     def __str__(self) -> str:
         return str(self.value)
+    
+    def is_empty(self) -> bool:
+        return self is None or self.value is None or str(self.value).strip() == ''
 
 class SheetsHandler:
     def __init__(self, ctx, credentials: Credentials = None):
@@ -66,6 +69,8 @@ class SheetsHandler:
                 
                 values = [[CellData(value) for value in row] for row in result.get('values', [])]
                 df = pd.DataFrame(values)
+
+                df.attrs['context_column_indexes'] = self.get_column_indexes(df, self.ctx.config['context_columns']['patterns'])
 
                 self._sheets[sheet_name] = df
                 
@@ -122,16 +127,16 @@ class SheetsHandler:
             except Exception as e:
                 logger.error(f"Error syncing changes for sheet {sheet_name}: {str(e)}")
                 raise
-    
-    def get_sheet_names(self) -> List[str]:
-        """Get all sheet names"""
-        return list(self._sheets.keys())
 
-    def get_sheet_data(self, sheet_name: str) -> pd.DataFrame:
-        if sheet_name not in self._sheets:
-            raise ValueError(f"Sheet {sheet_name} not loaded")
-        return self._sheets[sheet_name]
+    def get_unsynced_cells(self, sheet_data: pd.DataFrame) -> Dict[str, Any]:
+        """Get all unsynced cells"""
+        updates = {}
+        for rowIdx, row in sheet_data.iterrows():
+            for colIdx, cell in enumerate(row):
+                if cell and not cell.is_synced:
+                    updates[f'{SheetIndex.to_column_letter(colIdx + 1)}{rowIdx + 1}'] = cell
 
+        return updates
 
     def add_new_column(self, sheet_data: pd.DataFrame, column_title: str) -> int:
         """Add a new column to end of the sheet"""
@@ -154,18 +159,28 @@ class SheetsHandler:
             cell.value = value
         cell.is_synced = False
 
-    def get_column_names(self, sheet_data: pd.DataFrame) -> List[str]:
+
+    def get_sheet_names(self) -> List[str]:
+        """Get all sheet names"""
+        return list(self._sheets.keys())
+
+    def get_sheet_data(self, sheet_name: str) -> pd.DataFrame:
+        if sheet_name not in self._sheets:
+            raise ValueError(f"Sheet {sheet_name} not loaded")
+        return self._sheets[sheet_name]
+
+    def get_column_names(self, sheet_data: pd.DataFrame, lower_case: bool = False) -> List[str]:
         """Get all column names from 1st row"""
-        return [cell.value for cell in sheet_data.iloc[0]]        
+        return [cell.value.lower() if lower_case else cell.value for cell in sheet_data.iloc[0]]        
 
     def get_column_indexes(self, sheet_data: pd.DataFrame, column_names: List[str], create_if_missing: bool = False) -> List[int]:
         """Get the indexes of the context columns"""
-        sheet_column_names = self.get_column_names(sheet_data)
+        sheet_column_names = self.get_column_names(sheet_data, lower_case=True)
         column_indexes = []
         
         for col_name in column_names:
             try:
-                col_idx = sheet_column_names.index(col_name)
+                col_idx = sheet_column_names.index(col_name.lower())
             except ValueError:
                 if create_if_missing:
                     col_idx = self.add_new_column(sheet_data, col_name)
@@ -175,32 +190,7 @@ class SheetsHandler:
 
         return column_indexes
 
-
-    def get_unsynced_cells(self, sheet_data: pd.DataFrame) -> Dict[str, Any]:
-        """Get all unsynced cells"""
-        updates = {}
-        for rowIdx, row in sheet_data.iterrows():
-            for colIdx, cell in enumerate(row):
-                if cell and not cell.is_synced:
-                    updates[f'{SheetIndex.to_column_letter(colIdx + 1)}{rowIdx + 1}'] = cell
-
-        return updates
-
-
-
-    #########################################################
-    ########## Cell value operations #######################
-    #########################################################
-        
-    def get_cell_value(self, sheet_name: str, cell_ref: str) -> Any:
-        """Get a cell value from memory"""
-        if sheet_name not in self._sheets:
-            raise ValueError(f"Sheet {sheet_name} not loaded")
-            
-        col, row = SheetIndex.parse_cell_reference(cell_ref)
-        col_idx = SheetIndex.from_column_letter(col) - 1
-        row_idx = SheetIndex.to_df_index(row)
-        
-        cell = self._sheets[sheet_name].get_cell(row_idx, col_idx)
-        return cell.value if cell else None
-    
+    def get_row_context(self, sheet_data: pd.DataFrame, row_idx: int) -> List[str]:
+        """Get the context of a row"""
+        column_names = self.get_column_names(sheet_data)
+        return [{column_names[col_idx]: sheet_data.iloc[row_idx][col_idx].value} for col_idx in sheet_data.attrs['context_column_indexes']]

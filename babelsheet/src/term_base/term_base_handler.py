@@ -40,8 +40,6 @@ class TermBaseHandler:
             raise ValueError(f"Required column '{self.term_column_name}' not found in term base sheet")
 
         # Find the indexes of the context columns
-        self.context_column_indexes = self.sheets_handler.get_column_indexes(self.sheet_data, self.ctx.config['context_columns']['patterns'])
-        self.logger.debug(f'term_column_index: {self.term_column_index}, context_column_indexes: {self.context_column_indexes}')
         self.logger.info(f"Successfully loaded {len(self.sheet_data.iloc[:, self.term_column_index])} terms")
 
     def get_terms_for_language(self, lang: str) -> Dict[str, Dict[str, Any]]:
@@ -68,7 +66,7 @@ class TermBaseHandler:
                 self.logger.critical(f"Language `{lang}`: term not found: `{term}`")
                 continue
 
-            term_combined_context = ' '.join([row[idx].value for idx in self.context_column_indexes])
+            term_combined_context = ' '.join([row[idx].value for idx in self.sheet_data.attrs['context_column_indexes']])
 
             terms[term] = { 
                 'translation': translation,

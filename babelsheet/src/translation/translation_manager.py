@@ -4,7 +4,7 @@ import pandas as pd
 import json
 from ..utils.qa_handler import QAHandler
 from ..term_base.term_base_handler import TermBaseHandler
-from ..sheets.sheets_handler import SheetsHandler
+from ..sheets.sheets_handler import SheetsHandler, CellData
 import asyncio
 import logging
 
@@ -61,25 +61,50 @@ class TranslationManager:
             Dictionary mapping language codes to lists of row indices with missing translations
         """
         missing_translations = {}
+        source_lang_idx = self.sheets_handler.get_column_indexes(df, [source_lang])[0]
+        target_langs_idx = self.sheets_handler.get_column_indexes(df, target_langs, create_if_missing=True)
+        rows_count = df.shape[0]
 
         # Check each target language
-        for lang in target_langs:
-            missing_translations[lang] = []
+        for i in range(len(target_langs)):
+            lang = target_langs[i]
+            lang_idx = target_langs_idx[i]
+            lang_missing = []
             
-            # Skip if target language column doesn't exist
-            if lang not in df.columns:
-                missing_translations[lang].extend(range(len(df)))
-                continue
-            
+            logger.debug(f"Checking {rows_count} rows for language {lang}")
+
             # Check each row
-            for idx in range(len(df)):
-                # Skip if source text is empty
-                if pd.isna(df.iloc[idx][source_lang]):
+            for row_idx in range(rows_count):
+                if row_idx == 0:
                     continue
-                    
+                
+                source_cell = df.iloc[row_idx][source_lang_idx]
+                # Skip if source text is empty
+                if source_cell.is_empty():
+                    logger.debug(f"Skipping row {row_idx} for language {lang} because source text is empty")
+                    continue
+
+                target_cell = df.iloc[row_idx][lang_idx]
+                logger.debug(f"Checking row {row_idx} for language {lang}: {source_cell.value} -> {target_cell}")
                 # Check if translation is missing or empty
-                if pd.isna(df.iloc[idx][lang]) or str(df.iloc[idx][lang]).value.strip() == '':
-                    missing_translations[lang].append(idx)
+                if target_cell.is_empty():
+                    if pd.isna(target_cell):
+                        target_cell = CellData(value=None)
+                        df.loc[row_idx, lang_idx] = target_cell
+
+                    context = self.sheets_handler.get_row_context(df, row_idx)
+
+                    lang_missing.append(
+                    {
+                        'row_idx': row_idx,
+                        'col_idx': lang_idx,
+                        'source_text': source_cell.value,
+                        'target_cell': target_cell,
+                        'context': context
+                    })
+
+            if len(lang_missing) > 0:
+                missing_translations[lang] = lang_missing
         
         return missing_translations
 
@@ -411,20 +436,20 @@ Translate each text maintaining all rules. Return translations and term suggesti
             
         # Detect missing translations
         missing_translations = self.detect_missing_translations(df, source_lang, target_langs)
-
-        print(f"\n\nMissing translations: {missing_translations}\n\n")
+        print(f">>> Missing translations:\n{missing_translations}\n")
         
+
         # Process missing translations for each language
         translations_to_process = []
-        for lang, missing_indices in missing_translations.items():
-            if not missing_indices:
-                continue
+        for lang, missing_items in missing_translations.items():
                 
-            logger.info(f"Found {len(missing_indices)} missing translations for language {lang}")
-            
+            logger.info(f"[{sheet_name}] Found {len(missing_items)} missing translations for language {lang}")
+
+
+
             # Prepare translation requests
             for idx in missing_indices:
-                source_text = df.iloc[idx][source_lang]
+                source_text = df.iloc[idx][source_lang_idx]
                 if pd.isna(source_text):
                     continue
                     
