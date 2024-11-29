@@ -219,81 +219,9 @@ async def translate(ctx, target_langs, verbose):
             continue
         
         # Get initial sheet data
-        df = ctx.sheets_handler._get_sheet_data(sheet_name)
-        
-        # First ensure all required language columns exist
-        columns_added = False
-        try:
-            columns_added = ctx.sheets_handler.ensure_language_columns(sheet_name, ctx.target_langs)
-        except ValueError as e:
-            logger.error(f"Error: {str(e)}")
-            continue
-            
-        # If columns were added, refresh the sheet data to get the new structure
-        if columns_added:
-            # Clear the cache to force a fresh fetch
-            ctx.sheets_handler._sheet_cache.pop(sheet_name, None)
-            # Get fresh data with new columns
-            df = ctx.sheets_handler.read_sheet(sheet_name)
-        
-        # Detect missing translations
-        missing = translation_manager.detect_missing_translations(
-            df=df,
-            source_lang=ctx.source_lang,
-            target_langs=ctx.target_langs
-        )
-        
-        # Process translations for each language
-        for lang, missing_indices in missing.items():
-            if not missing_indices:
-                logger.info(f"No missing translations for {lang}")
-                continue
-            
-            logger.info(f"Translating {len(missing_indices)} entries to {lang}")
-            
-            # Get texts and contexts for translation
-            texts = df.loc[missing_indices, ctx.source_lang].tolist()
-            contexts = []
-            
-            # Get contexts from configured context columns if they exist
-            for idx in missing_indices:
-                context_parts = []
-                for pattern in ctx.config['context_columns']['patterns']:
-                    matching_cols = [col for col in df.columns if pattern.lower() in col.lower()]
-                    for col in matching_cols:
-                        if pd.notna(df.loc[idx, col]):
-                            context_parts.append(str(df.loc[idx, col]))
-                contexts.append(" | ".join(context_parts))
-            
-            # Get term base for this language
-            term_base = term_base_handler.get_terms_for_language(lang)
-            
-            # Translate and process each batch
-            async for batch_results in translation_manager._batch_translate(
-                texts=texts,
-                target_lang=lang,
-                contexts=contexts,
-                term_base=term_base,
-                df=df,
-                row_indices=missing_indices
-            ):
-                # Log any translation issues
-                for result in batch_results:
-                    if result.get('issues'):
-                        logger.debug(f"Translation issues for '{result['source_text']}' -> '{result['translated_text']}':")
-                        for issue in result['issues']:
-                            logger.debug(f"  - {issue}")
-                
-                # Print token usage statistics at the end
-                translation_manager.llm_handler.print_token_usage()
+        await translation_manager.ensure_sheet_translations(sheet_name, 
+            ctx.source_lang, ctx.target_langs, use_term_base=True)
 
-                # Update the sheet with the translated data for this batch
-                logger.info(f"Updating sheet with batch {batch_results[0]['batch_number']} translations...")
-                ctx.sheets_handler.update_sheet(sheet_name, df)
-                logger.info(f"Batch {batch_results[0]['batch_number']} completed and saved")
-            
-            logger.info(f"Completed all translations for {lang}")
-        
         logger.info(f"Completed processing sheet: {sheet_name}")
     
     # Print token usage statistics at the end

@@ -63,9 +63,6 @@ class TranslationManager:
         Returns:
             List of tuples containing (translated_text, issues) for each input text
         """
-        if contexts is None:
-            contexts = [""] * len(source_texts)
-            
         if len(contexts) != len(source_texts):
             raise ValueError("Number of contexts must match number of source texts")
             
@@ -239,42 +236,50 @@ class TranslationManager:
             
             logger.info(f"Processing batch {i//self.batch_size + 1} of {(len(texts) + self.batch_size - 1)//self.batch_size}")
             
-            # Process the entire batch at once
-            batch_translations = await self._perform_translation(
-                source_texts=batch_texts,
-                source_lang=self.config['languages']['source'],
-                target_lang=target_lang,
-                contexts=batch_contexts,
-                term_base=term_base
-            )
-            
-            # Process each translation in the batch
-            batch_results = []
-            for j, (text, context, (translation, issues)) in enumerate(zip(batch_texts, batch_contexts, batch_translations)):
-                result = {
-                    'source_text': text,
-                    'translated_text': translation,
-                    'context': context,
-                    'issues': issues,
-                    'batch_number': i//self.batch_size + 1
-                }
-                
-                # Update DataFrame if provided
-                if df is not None and batch_indices is not None:
-                    df.loc[batch_indices[j], target_lang] = translation
-                
-                # Update term base if this is a term that needs translation
-                if text in self.term_base_handler.term_base:
-                    self.term_base_handler.update_translations(text, {target_lang: translation})
-                
-                batch_results.append(result)
-            
-            yield batch_results
+            await self._perform_translation_with_retry(batch_texts, batch_contexts, batch_cells, target_lang, term_base)
             
             # Apply batch delay if this is not the last batch
             if i + self.batch_size < len(texts):
                 logger.debug(f"Waiting {self.batch_delay} seconds before processing next batch...")
                 await asyncio.sleep(self.batch_delay)
+
+
+
+    async def _perform_translation_with_retry(self, batch_texts: List[str], batch_contexts: List[str], batch_cells: List[Any], target_lang: str, term_base: Dict[str, Dict[str, Any]] = None) -> None:
+        # Process the entire batch at once
+        batch_translations = await self._perform_translation(
+            source_texts=batch_texts,
+            source_lang=self.config['languages']['source'],
+            target_lang=target_lang,
+            contexts=batch_contexts,
+            term_base=term_base
+        )
+        
+        # Process each translation in the batch
+        batch_results = []
+        for j, (text, context, (translation, issues)) in enumerate(zip(batch_texts, batch_contexts, batch_translations)):
+            result = {
+                'source_text': text,
+                'translated_text': translation,
+                'context': context,
+                'issues': issues,
+                'batch_number': i//self.batch_size + 1
+            }
+            
+            # Update DataFrame if provided
+            if df is not None and batch_indices is not None:
+                df.loc[batch_indices[j], target_lang] = translation
+            
+            # Update term base if this is a term that needs translation
+            if text in self.term_base_handler.term_base:
+                self.term_base_handler.update_translations(text, {target_lang: translation})
+            
+            batch_results.append(result)
+        
+        yield batch_results
+
+
+
 
     async def _perform_translation(self, source_texts: List[str], source_lang: str, 
                                  target_lang: str, contexts: List[str],
@@ -297,13 +302,14 @@ class TranslationManager:
             texts_with_contexts.append(f"Text {i+1}: {text}\nContext {i+1}: {context}")
         
         combined_texts = "\n\n".join(texts_with_contexts)
+
+        if term_base:
+            combined_texts += "\nTerm Base References:\n" + str(json.dumps(term_base, indent=2))
         
         prompt = f"""You are a world-class expert in translating to {target_lang}, 
 specialized for casual mobile games. Translate the following texts professionally:
 
 {combined_texts}
-
-{"Term Base References:\n" + str(json.dumps(term_base, indent=2)) if term_base else ""}
 
 Rules:
 - Use provided term base for consistency
@@ -364,12 +370,12 @@ Translate each text maintaining all rules. Return translations and term suggesti
                             },
                             "comment": {
                                 "type": "string",
-                                "description": "Brief explanation of term usage/context"
+                                "description": f"Brief explanation of term usage/context in {source_lang}"
                             }
                         },
                         "required": ["source_term", "suggested_translation", "comment"]
                     },
-                    "description": "Suggested terms to add to the term base"
+                    "description": "Suggested terms (names) to add to the term base"
                 }
             },
             "required": ["translations"]
@@ -420,3 +426,67 @@ Translate each text maintaining all rules. Return translations and term suggesti
             results.append((translated_text, translator_notes + validation_issues))
         
         return results
+
+
+
+        """
+        df = ctx.sheets_handler._get_sheet_data(sheet_name)
+        # Detect missing translations
+        missing = translation_manager.detect_missing_translations(
+            df=df,
+            source_lang=ctx.source_lang,
+            target_langs=ctx.target_langs
+        )
+        
+        # Process translations for each language
+        for lang, missing_indices in missing.items():
+            if not missing_indices:
+                logger.info(f"No missing translations for {lang}")
+                continue
+            
+            logger.info(f"Translating {len(missing_indices)} entries to {lang}")
+            
+            # Get texts and contexts for translation
+            texts = df.loc[missing_indices, ctx.source_lang].tolist()
+            contexts = []
+            
+            # Get contexts from configured context columns if they exist
+            for idx in missing_indices:
+                context_parts = []
+                for pattern in ctx.config['context_columns']['patterns']:
+                    matching_cols = [col for col in df.columns if pattern.lower() in col.lower()]
+                    for col in matching_cols:
+                        if pd.notna(df.loc[idx, col]):
+                            context_parts.append(str(df.loc[idx, col]))
+                contexts.append(" | ".join(context_parts))
+            
+            # Get term base for this language
+            term_base = term_base_handler.get_terms_for_language(lang)
+            
+            # Translate and process each batch
+            async for batch_results in translation_manager._batch_translate(
+                texts=texts,
+                target_lang=lang,
+                contexts=contexts,
+                term_base=term_base,
+                df=df,
+                row_indices=missing_indices
+            ):
+                # Log any translation issues
+                for result in batch_results:
+                    if result.get('issues'):
+                        logger.debug(f"Translation issues for '{result['source_text']}' -> '{result['translated_text']}':")
+                        for issue in result['issues']:
+                            logger.debug(f"  - {issue}")
+                
+                # Print token usage statistics at the end
+                translation_manager.llm_handler.print_token_usage()
+
+                # Update the sheet with the translated data for this batch
+                logger.info(f"Updating sheet with batch {batch_results[0]['batch_number']} translations...")
+                ctx.sheets_handler.update_sheet(sheet_name, df)
+                logger.info(f"Batch {batch_results[0]['batch_number']} completed and saved")
+            
+            logger.info(f"Completed all translations for {lang}")
+        
+        """

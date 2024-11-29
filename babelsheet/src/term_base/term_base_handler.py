@@ -1,6 +1,6 @@
 from typing import Dict, Optional, Any
 import pandas as pd
-from ..sheets.sheets_handler import SheetsHandler
+from ..sheets.sheets_handler import SheetsHandler, CellData
 import logging
 
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ class TermBaseHandler:
             Dictionary mapping terms to their data (translations and comments)
         """
 
-        lang_context_column_index = self.sheets_handler.get_column_indexes(self.sheet_data, [lang])[0]
+        lang_column_index = self.sheets_handler.get_column_indexes(self.sheet_data, [lang])[0]
 
         terms = {}
         for i, row in self.sheet_data.iterrows():
@@ -61,7 +61,7 @@ class TermBaseHandler:
 
             term = row[self.term_column_index].value
 
-            translation = row[lang_context_column_index].value
+            translation = row[lang_column_index].value
             if pd.isna(translation):
                 self.logger.critical(f"Language `{lang}`: term not found: `{term}`")
                 continue
@@ -74,3 +74,14 @@ class TermBaseHandler:
             }
 
         return terms
+
+    def add_new_term(self, term: str, translation: str, context: str) -> None:
+        """Add a new term to the term base"""
+        row = []
+        row[self.term_column_index] = CellData(term)
+        row[self.comment_column_index] = CellData('')
+        row[self.translation_column_index] = CellData(translation)
+        row[self.context_column_index] = CellData(context)
+
+        self.sheets_handler.add_new_row(self.sheet_data, row)
+

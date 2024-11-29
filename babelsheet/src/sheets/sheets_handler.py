@@ -138,14 +138,6 @@ class SheetsHandler:
 
         return updates
 
-    def add_new_column(self, sheet_data: pd.DataFrame, column_title: str) -> int:
-        """Add a new column to end of the sheet"""
-        empty_column = [CellData(None) for _ in range(len(sheet_data))]
-        idx = len(sheet_data.columns)
-        sheet_data.insert(idx, idx, empty_column)
-        sheet_data.iloc[0, idx] = CellData(column_title, is_synced=False)
-        return idx
-
     def modify_cell_data(self, sheet_name: str, row: int, col: int, value: Any):
         """Modify a cell data in memory"""
         if sheet_name not in self._sheets:
@@ -158,6 +150,20 @@ class SheetsHandler:
         else:
             cell.value = value
         cell.is_synced = False
+
+    def add_new_column(self, sheet_data: pd.DataFrame, column_title: str) -> int:
+        """Add a new column to end of the sheet"""
+        empty_column = [CellData(None) for _ in range(len(sheet_data))]
+        idx = len(sheet_data.columns)
+        sheet_data.insert(idx, idx, empty_column)
+        sheet_data.iloc[0, idx] = CellData(column_title, is_synced=False)
+        return idx
+    
+    def add_new_row(self, sheet_data: pd.DataFrame, row_values: List[Any]) -> int:
+        """Add a new row to end of the sheet"""
+        idx = len(sheet_data.index)
+        sheet_data.loc[idx] = row_values
+        return idx
 
 
     def get_sheet_names(self) -> List[str]:
