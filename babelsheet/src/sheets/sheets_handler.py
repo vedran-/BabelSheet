@@ -163,6 +163,7 @@ class SheetsHandler:
         """Add a new row to end of the sheet"""
         idx = len(sheet_data.index)
         sheet_data.loc[idx] = row_values
+        self.logger.debug(f"Adding new row: {row_values}")
         return idx
 
 

@@ -156,7 +156,7 @@ class TranslationManager:
                 target_cell = df.iloc[row_idx][lang_idx]
                 logger.debug(f"Checking row {row_idx} for language {lang}: {source_cell.value} -> {target_cell}")
                 # Check if translation is missing or empty
-                if target_cell.is_empty():
+                if target_cell is None or target_cell.is_empty():
                     if pd.isna(target_cell):
                         target_cell = CellData(value=None)
                         df.loc[row_idx, lang_idx] = target_cell
@@ -199,20 +199,19 @@ class TranslationManager:
             term_base = self.term_base_handler.get_terms_for_language(lang) if use_term_base else None
             
             # Process the batch
-            async for batch_results in self._batch_translate(
+            await self._batch_translate(
                 texts=texts,
                 target_lang=lang,
                 contexts=contexts,
                 cells=cells,
                 term_base=term_base
-            ):
-                pass
+            )
 
     async def _batch_translate(self, texts: List[str], target_lang: str,
                             contexts: List[str],
                             cells: List[Any],
                             term_base: Dict[str, Dict[str, Any]] = None
-                            ) -> AsyncGenerator[List[Dict[str, Any]], None]:
+                            ):
         """Translate a batch of texts.
         
         Args:
@@ -245,38 +244,51 @@ class TranslationManager:
 
 
 
-    async def _perform_translation_with_retry(self, batch_texts: List[str], batch_contexts: List[str], batch_cells: List[Any], target_lang: str, term_base: Dict[str, Dict[str, Any]] = None) -> None:
-        # Process the entire batch at once
-        batch_translations = await self._perform_translation(
-            source_texts=batch_texts,
-            source_lang=self.config['languages']['source'],
-            target_lang=target_lang,
-            contexts=batch_contexts,
-            term_base=term_base
-        )
+    async def _perform_translation_with_retry(self, batch_texts: List[str], batch_contexts: List[str], batch_cells: List[Any], target_lang: str, term_base: Dict[str, Dict[str, Any]] = None):
+        """Perform translation for a batch of texts with retry logic."""
+        retries = 0
+        last_error = None
         
-        # Process each translation in the batch
-        batch_results = []
-        for j, (text, context, (translation, issues)) in enumerate(zip(batch_texts, batch_contexts, batch_translations)):
-            result = {
-                'source_text': text,
-                'translated_text': translation,
-                'context': context,
-                'issues': issues,
-                'batch_number': i//self.batch_size + 1
-            }
+        while retries < self.max_retries:
+            try:
+                # Process the entire batch at once
+                batch_translations = await self._perform_translation(
+                    source_texts=batch_texts,
+                    source_lang=self.config['languages']['source'],
+                    target_lang=target_lang,
+                    contexts=batch_contexts,
+                    term_base=term_base
+                )
+
+                # Process each translation in the batch
+                batch_results = []
+                for j, (text, context, (translation, issues)) in enumerate(zip(batch_texts, batch_contexts, batch_translations)):
+                    result = {
+                        'source_text': text,
+                        'translated_text': translation,
+                        'context': context,
+                        'issues': issues,
+                        'batch_number': j//self.batch_size + 1
+                    }
             
-            # Update DataFrame if provided
-            if df is not None and batch_indices is not None:
-                df.loc[batch_indices[j], target_lang] = translation
+                    # Update DataFrame if provided
+                    if df is not None and batch_indices is not None:
+                        df.loc[batch_indices[j], target_lang] = translation
             
-            # Update term base if this is a term that needs translation
-            if text in self.term_base_handler.term_base:
-                self.term_base_handler.update_translations(text, {target_lang: translation})
+                    # Update term base if this is a term that needs translation
+                    if text in self.term_base_handler.term_base:
+                        self.term_base_handler.update_translations(text, {target_lang: translation})
             
-            batch_results.append(result)
-        
-        yield batch_results
+                    batch_results.append(result)
+
+            except ValueError as e:
+                last_error = e
+                retries += 1
+                if retries == self.max_retries:
+                    raise
+                logger.warning(f"Translation attempt {retries} failed, retrying in {self.retry_delay} seconds. Error: {e.__class__.__name__}: {str(e)}")
+                logger.warning(f"Translation attempt {retries} failed, retrying in {self.retry_delay} seconds. Error: {e.__class__.__name__}: {str(e)} in {e.__traceback__.tb_frame.f_code.co_filename.split('/')[-1]}:{e.__traceback__.tb_lineno}")
+                await asyncio.sleep(self.retry_delay * retries)  # Exponential backoff
 
 
 
@@ -396,7 +408,7 @@ Translate each text maintaining all rules. Return translations and term suggesti
         # Update term base with suggestions if we have a term base handler
         if self.term_base_handler and term_suggestions:
             for term in term_suggestions:
-                self.term_base_handler.add_term(
+                self.term_base_handler.add_new_term(
                     term=term["source_term"],
                     comment=term["comment"],
                     translations={target_lang: term["suggested_translation"]}
