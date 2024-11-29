@@ -47,50 +47,6 @@ class TranslationManager:
         self.batch_delay = llm_config.get('batch_delay', 1)
         self.max_retries = llm_config.get('max_retries', 3)
         self.retry_delay = llm_config.get('retry_delay', 1)  # seconds
-        
-
-    async def translate_text(self, source_texts: List[str], source_lang: str, target_lang: str, 
-                           contexts: List[str] = None, term_base: Dict[str, str] = None) -> List[Tuple[str, List[str]]]:
-        """Translate a batch of texts and validate the translations.
-        
-        Args:
-            source_texts: List of texts to translate
-            source_lang: Source language code
-            target_lang: Target language code
-            contexts: Optional list of context strings for each text
-            term_base: Optional term base dictionary
-            
-        Returns:
-            List of tuples containing (translated_text, issues) for each input text
-        """
-        if len(contexts) != len(source_texts):
-            raise ValueError("Number of contexts must match number of source texts")
-            
-        retries = 0
-        last_error = None
-        
-        while retries < self.max_retries:
-            try:
-                results = await self._perform_translation(
-                    source_texts, source_lang, target_lang, contexts, term_base
-                )
-                return results
-            except (
-                TimeoutError,  # Network timeouts
-                ConnectionError,  # Connection issues
-                json.JSONDecodeError,  # Response parsing errors
-                asyncio.TimeoutError,  # Async timeouts
-            ) as e:
-                last_error = e
-                retries += 1
-                if retries == self.max_retries:
-                    logger.error(f"Failed to translate after {self.max_retries} attempts: {str(e)}")
-                    raise
-                logger.warning(f"Translation attempt {retries} failed, retrying in {self.retry_delay} seconds...")
-                await asyncio.sleep(self.retry_delay * retries)  # Exponential backoff
-
-
-
 
     async def ensure_sheet_translations(self, sheet_name: str, source_lang: str, 
                                         target_langs: List[str], use_term_base: bool) -> None:
@@ -242,9 +198,9 @@ class TranslationManager:
                 logger.debug(f"Waiting {self.batch_delay} seconds before processing next batch...")
                 await asyncio.sleep(self.batch_delay)
 
-
-
-    async def _perform_translation_with_retry(self, batch_texts: List[str], batch_contexts: List[str], batch_cells: List[Any], target_lang: str, term_base: Dict[str, Dict[str, Any]] = None):
+    async def _perform_translation_with_retry(self, batch_texts: List[str], batch_contexts: List[str], 
+                                              batch_cells: List[Any], target_lang: str,
+                                              term_base: Dict[str, Dict[str, Any]] = None):
         """Perform translation for a batch of texts with retry logic."""
         retries = 0
         last_error = None
@@ -257,6 +213,7 @@ class TranslationManager:
                     source_lang=self.config['languages']['source'],
                     target_lang=target_lang,
                     contexts=batch_contexts,
+                    cells=batch_cells,
                     term_base=term_base
                 )
 
@@ -281,7 +238,13 @@ class TranslationManager:
             
                     batch_results.append(result)
 
-            except ValueError as e:
+            except (
+                TimeoutError,  # Network timeouts
+                ConnectionError,  # Connection issues
+                json.JSONDecodeError,  # Response parsing errors
+                asyncio.TimeoutError,  # Async timeouts
+                ValueError,
+            ) as e:
                 last_error = e
                 retries += 1
                 if retries == self.max_retries:
@@ -292,10 +255,10 @@ class TranslationManager:
 
 
 
-
     async def _perform_translation(self, source_texts: List[str], source_lang: str, 
-                                 target_lang: str, contexts: List[str],
-                                 term_base: Dict[str, Dict[str, Any]] = None) -> List[Tuple[str, List[str]]]:
+                                 target_lang: str, contexts: List[str], cells: List[Any],
+                                 term_base: Dict[str, Dict[str, Any]] = None
+                                 ) -> List[Tuple[str, List[str]]]:
         """Internal method to perform batch translation.
         
         Args:
@@ -414,6 +377,7 @@ Translate each text maintaining all rules. Return translations and term suggesti
                     translations={target_lang: term["suggested_translation"]}
                 )
             self.logger.info(f"Added {len(term_suggestions)} new terms to the term base")
+            self.sheets_handler.save_changes()
         
         # Validate all translations in parallel
         validation_tasks = []
@@ -442,14 +406,6 @@ Translate each text maintaining all rules. Return translations and term suggesti
 
 
         """
-        df = ctx.sheets_handler._get_sheet_data(sheet_name)
-        # Detect missing translations
-        missing = translation_manager.detect_missing_translations(
-            df=df,
-            source_lang=ctx.source_lang,
-            target_langs=ctx.target_langs
-        )
-        
         # Process translations for each language
         for lang, missing_indices in missing.items():
             if not missing_indices:

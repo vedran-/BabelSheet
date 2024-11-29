@@ -93,7 +93,7 @@ class SheetsHandler:
                 logger.debug(f"No changes to sync for sheet: {sheet_name}")
                 continue
                 
-            logger.info(f"Syncing {len(updates)} changes in sheet: {sheet_name}")
+            logger.info(f"Syncing {len(updates)} changes in sheet `{sheet_name}`: {updates}")
 
             # Convert to batch request format
             batch_data = [

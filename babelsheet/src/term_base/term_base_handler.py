@@ -76,8 +76,7 @@ class TermBaseHandler:
         terms = self.sheet_data.iloc[1:, self.term_column_index].values
         term_idx = next((i for i, t in enumerate(terms) if term in t.value), None)
 
-        def _set_translations(term_idx: int, translations: Dict[str, str]) -> bool:
-            modified = False
+        def _set_translations(term_idx: int, translations: Dict[str, str]):
             for lang, translation in translations.items():
                 column_idx = self.sheets_handler.get_column_indexes(self.sheet_data, [lang], create_if_missing=True)[0]
                 current_cell = self.sheet_data.iloc[term_idx + 1, column_idx]
@@ -86,15 +85,10 @@ class TermBaseHandler:
                     continue
 
                 self.sheets_handler.modify_cell_data(self.sheet_name, term_idx + 1, column_idx, translation)
-                modified = True
-
-            return modified
 
         if term_idx is not None:
             self.logger.warn(f"Term `{term}` already exists in term base")
-            modified = _set_translations(term_idx, translations)
-            if modified:
-                self.sheets_handler.save_changes()
+            _set_translations(term_idx, translations)
             return
 
         # Initialize row with empty CellData for all columns
@@ -107,9 +101,9 @@ class TermBaseHandler:
         comment_column_idx = self.sheet_data.attrs['context_column_indexes'][0]
         row[comment_column_idx] = CellData(comment, is_synced=False)
 
-        # Set translations
-        _set_translations(row, translations)
-
         self.sheets_handler.add_new_row(self.sheet_data, row)
-        self.sheets_handler.save_changes()
+
+        # Set translations
+        _set_translations(term_idx, translations)
+
 
