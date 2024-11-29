@@ -253,25 +253,17 @@ class TranslationManager:
                 logger.warning(f"Translation attempt {retries} failed, retrying in {self.retry_delay} seconds. Error: {e.__class__.__name__}: {str(e)} in {e.__traceback__.tb_frame.f_code.co_filename.split('/')[-1]}:{e.__traceback__.tb_lineno}")
                 await asyncio.sleep(self.retry_delay * retries)  # Exponential backoff
 
-
-
-    async def _perform_translation(self, source_texts: List[str], source_lang: str, 
-                                 target_lang: str, contexts: List[str], cells: List[Any],
-                                 term_base: Dict[str, Dict[str, Any]] = None
-                                 ) -> List[Tuple[str, List[str]]]:
-        """Internal method to perform batch translation.
+    def _prepare_texts_with_contexts(self, source_texts: List[str], contexts: List[str], term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
+        """Prepare texts with their contexts for translation.
         
         Args:
             source_texts: List of texts to translate
-            source_lang: Source language code
-            target_lang: Target language code
             contexts: List of context strings for each text
             term_base: Optional term base dictionary
             
         Returns:
-            List of tuples containing (translated_text, issues) for each input text
+            Combined text string with contexts and term base
         """
-        # Create a combined prompt for all texts
         texts_with_contexts = []
         for i, (text, context) in enumerate(zip(source_texts, contexts)):
             texts_with_contexts.append(f"Text {i+1}: {text}\nContext {i+1}: {context}")
@@ -280,8 +272,21 @@ class TranslationManager:
 
         if term_base:
             combined_texts += "\nTerm Base References:\n" + str(json.dumps(term_base, indent=2))
+            
+        return combined_texts
+
+    def _create_translation_prompt(self, combined_texts: str, target_lang: str, source_lang: str) -> str:
+        """Create the translation prompt with all necessary instructions.
         
-        prompt = f"""You are a world-class expert in translating to {target_lang}, 
+        Args:
+            combined_texts: Prepared texts with contexts
+            target_lang: Target language code
+            source_lang: Source language code
+            
+        Returns:
+            Complete prompt string
+        """
+        return f"""You are a world-class expert in translating to {target_lang}, 
 specialized for casual mobile games. Translate the following texts professionally:
 
 {combined_texts}
@@ -307,7 +312,13 @@ Additionally:
 
 Translate each text maintaining all rules. Return translations and term suggestions in a structured format."""
 
-        translation_schema = {
+    def _get_translation_schema(self) -> Dict[str, Any]:
+        """Get the schema for translation response validation.
+        
+        Returns:
+            JSON schema dictionary
+        """
+        return {
             "type": "object",
             "properties": {
                 "translations": {
@@ -345,7 +356,7 @@ Translate each text maintaining all rules. Return translations and term suggesti
                             },
                             "comment": {
                                 "type": "string",
-                                "description": f"Brief explanation of term usage/context in {source_lang}"
+                                "description": f"Brief explanation of term usage/context"
                             }
                         },
                         "required": ["source_term", "suggested_translation", "comment"]
@@ -356,19 +367,13 @@ Translate each text maintaining all rules. Return translations and term suggesti
             "required": ["translations"]
         }
 
-        response = await self.llm_handler.generate_completion(
-            messages=[
-                {"role": "system", "content": f"You are a world-class expert in translating to {target_lang}."},
-                {"role": "user", "content": prompt}
-            ],
-            json_schema=translation_schema
-        )
+    async def _handle_term_suggestions(self, term_suggestions: List[Dict[str, str]], target_lang: str) -> None:
+        """Handle term suggestions by adding them to the term base.
         
-        result = self.llm_handler.extract_structured_response(response)
-        translations = result["translations"]
-        term_suggestions = result.get("term_suggestions", [])
-        
-        # Update term base with suggestions if we have a term base handler
+        Args:
+            term_suggestions: List of term suggestions
+            target_lang: Target language code
+        """
         if self.term_base_handler and term_suggestions:
             for term in term_suggestions:
                 self.term_base_handler.add_new_term(
@@ -378,8 +383,20 @@ Translate each text maintaining all rules. Return translations and term suggesti
                 )
             self.logger.info(f"Added {len(term_suggestions)} new terms to the term base")
             self.sheets_handler.save_changes()
+
+    async def _validate_translations(self, source_texts: List[str], translations: List[Dict[str, Any]], 
+                                   term_base: Optional[Dict[str, Dict[str, Any]]], target_lang: str) -> List[Tuple[str, List[str]]]:
+        """Validate translations and combine with translator notes.
         
-        # Validate all translations in parallel
+        Args:
+            source_texts: Original texts
+            translations: Translation results
+            term_base: Optional term base
+            target_lang: Target language code
+            
+        Returns:
+            List of tuples containing (translated_text, issues)
+        """
         validation_tasks = []
         for i, source_text in enumerate(source_texts):
             translated_text = translations[i]["translation"]
@@ -394,7 +411,6 @@ Translate each text maintaining all rules. Return translations and term suggesti
         
         validation_results = await asyncio.gather(*validation_tasks)
         
-        # Combine translations with their validation results
         results = []
         for i, (translation_result, validation_issues) in enumerate(zip(translations, validation_results)):
             translated_text = translation_result["translation"]
@@ -403,58 +419,43 @@ Translate each text maintaining all rules. Return translations and term suggesti
         
         return results
 
-
-
-        """
-        # Process translations for each language
-        for lang, missing_indices in missing.items():
-            if not missing_indices:
-                logger.info(f"No missing translations for {lang}")
-                continue
-            
-            logger.info(f"Translating {len(missing_indices)} entries to {lang}")
-            
-            # Get texts and contexts for translation
-            texts = df.loc[missing_indices, ctx.source_lang].tolist()
-            contexts = []
-            
-            # Get contexts from configured context columns if they exist
-            for idx in missing_indices:
-                context_parts = []
-                for pattern in ctx.config['context_columns']['patterns']:
-                    matching_cols = [col for col in df.columns if pattern.lower() in col.lower()]
-                    for col in matching_cols:
-                        if pd.notna(df.loc[idx, col]):
-                            context_parts.append(str(df.loc[idx, col]))
-                contexts.append(" | ".join(context_parts))
-            
-            # Get term base for this language
-            term_base = term_base_handler.get_terms_for_language(lang)
-            
-            # Translate and process each batch
-            async for batch_results in translation_manager._batch_translate(
-                texts=texts,
-                target_lang=lang,
-                contexts=contexts,
-                term_base=term_base,
-                df=df,
-                row_indices=missing_indices
-            ):
-                # Log any translation issues
-                for result in batch_results:
-                    if result.get('issues'):
-                        logger.debug(f"Translation issues for '{result['source_text']}' -> '{result['translated_text']}':")
-                        for issue in result['issues']:
-                            logger.debug(f"  - {issue}")
-                
-                # Print token usage statistics at the end
-                translation_manager.llm_handler.print_token_usage()
-
-                # Update the sheet with the translated data for this batch
-                logger.info(f"Updating sheet with batch {batch_results[0]['batch_number']} translations...")
-                ctx.sheets_handler.update_sheet(sheet_name, df)
-                logger.info(f"Batch {batch_results[0]['batch_number']} completed and saved")
-            
-            logger.info(f"Completed all translations for {lang}")
+    async def _perform_translation(self, source_texts: List[str], source_lang: str, 
+                                 target_lang: str, contexts: List[str], cells: List[Any],
+                                 term_base: Dict[str, Dict[str, Any]] = None
+                                 ) -> List[Tuple[str, List[str]]]:
+        """Internal method to perform batch translation.
         
+        Args:
+            source_texts: List of texts to translate
+            source_lang: Source language code
+            target_lang: Target language code
+            contexts: List of context strings for each text
+            term_base: Optional term base dictionary
+            
+        Returns:
+            List of tuples containing (translated_text, issues) for each input text
         """
+        # Prepare texts and create prompt
+        combined_texts = self._prepare_texts_with_contexts(source_texts, contexts, term_base)
+        prompt = self._create_translation_prompt(combined_texts, target_lang, source_lang)
+        
+        # Get translation schema and generate completion
+        translation_schema = self._get_translation_schema()
+        response = await self.llm_handler.generate_completion(
+            messages=[
+                {"role": "system", "content": f"You are a world-class expert in translating to {target_lang}."},
+                {"role": "user", "content": prompt}
+            ],
+            json_schema=translation_schema
+        )
+        
+        # Process response
+        result = self.llm_handler.extract_structured_response(response)
+        translations = result["translations"]
+        term_suggestions = result.get("term_suggestions", [])
+        
+        # Handle term suggestions
+        await self._handle_term_suggestions(term_suggestions, target_lang)
+        
+        # Validate translations
+        return await self._validate_translations(source_texts, translations, term_base, target_lang)
