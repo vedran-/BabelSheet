@@ -58,7 +58,7 @@ class TranslationManager:
             target_langs: List of target language codes
             
         Returns:
-            Dictionary mapping language codes to lists of row indices with missing translations
+            Dictionary mapping language codes to missing translations
         """
         missing_translations = {}
         source_lang_idx = self.sheets_handler.get_column_indexes(df, [source_lang])[0]
@@ -296,40 +296,31 @@ Translate each text maintaining all rules. Return translations and term suggesti
         
         return results
 
-    async def batch_translate(self, texts: List[str], target_lang: str,
-                            contexts: List[str] = None,
-                            term_base: Dict[str, Dict[str, Any]] = None,
-                            df: Optional[pd.DataFrame] = None,
-                            row_indices: Optional[List[int]] = None) -> AsyncGenerator[List[Dict[str, Any]], None]:
+    async def _batch_translate(self, texts: List[str], target_lang: str,
+                            contexts: List[str],
+                            cells: List[Any],
+                            term_base: Dict[str, Dict[str, Any]] = None
+                            ) -> AsyncGenerator[List[Dict[str, Any]], None]:
         """Translate a batch of texts.
         
         Args:
             texts: List of texts to translate
             target_lang: Target language code
-            contexts: Optional list of context strings for each text
-            term_base: Optional term base dictionary
-            df: Optional DataFrame to update with translations
-            row_indices: Optional list of row indices for DataFrame updates
+            contexts: List of context strings for each text
+            cells: List of cell indices for DataFrame updates
+            term_base: Term base dictionary
             
         Yields:
             List of dictionaries containing translations and metadata for each batch
         """
-        if contexts is None:
-            contexts = [""] * len(texts)
-        
-        if len(texts) != len(contexts):
-            raise ValueError("Number of texts and contexts must match")
-        
-        # If DataFrame is provided, ensure the target language column exists
-        if df is not None:
-            if target_lang not in df.columns:
-                df[target_lang] = pd.NA
+        if len(texts) != len(contexts) or len(texts) != len(cells):
+            raise ValueError("Number of texts, contexts and cells must match")
         
         # Process in batches
         for i in range(0, len(texts), self.batch_size):
             batch_texts = texts[i:i + self.batch_size]
             batch_contexts = contexts[i:i + self.batch_size]
-            batch_indices = row_indices[i:i + self.batch_size] if row_indices else None
+            batch_cells = cells[i:i + self.batch_size]
             
             logger.info(f"Processing batch {i//self.batch_size + 1} of {(len(texts) + self.batch_size - 1)//self.batch_size}")
             
@@ -370,55 +361,8 @@ Translate each text maintaining all rules. Return translations and term suggesti
                 logger.debug(f"Waiting {self.batch_delay} seconds before processing next batch...")
                 await asyncio.sleep(self.batch_delay)
 
-    async def process_translations(self, translations: List[Dict], df: Optional[pd.DataFrame] = None) -> List[Dict]:
-        """Process a batch of translations with validation.
-        
-        Args:
-            translations: List of translation requests
-            df: Optional DataFrame to update with translations
-        """
-        results = []
-        
-        # Group translations by target language for efficient batch processing
-        by_language = {}
-        for item in translations:
-            lang = item['target_lang']
-            if lang not in by_language:
-                by_language[lang] = []
-            by_language[lang].append(item)
-        
-        # First ensure term base is complete for all target languages
-        target_langs = list(by_language.keys())
-        await self.ensure_term_base_translations(target_langs)
-        
-        # Process each language group
-        for lang, items in by_language.items():
-            texts = []
-            contexts = []
-            row_indices = []
-            
-            # Extract texts, contexts, and row indices
-            for item in items:
-                texts.append(item['source_text'])
-                contexts.append(item.get('context', ''))
-                if 'row_idx' in item:
-                    row_indices.append(item['row_idx'])
-            
-            # Get term base for this language
-            term_base = self.term_base_handler.get_terms_for_language(lang)
-            
-            # Process the batch
-            async for batch_results in self.batch_translate(
-                texts=texts,
-                target_lang=lang,
-                contexts=contexts,
-                term_base=term_base,
-                df=df,
-                row_indices=row_indices if row_indices else None
-            ):
-                results.extend(batch_results)
-        
-        return results
+
+
 
     async def ensure_sheet_translations(self, sheet_name: str, source_lang: str, target_langs: List[str]) -> None:
         """Ensure all terms in the term base have translations for target languages.
@@ -433,45 +377,53 @@ Translate each text maintaining all rules. Return translations and term suggesti
         
         # Get the sheet data
         df = self.sheets_handler.get_sheet_data(sheet_name)
-            
         # Detect missing translations
         missing_translations = self.detect_missing_translations(df, source_lang, target_langs)
-        print(f">>> Missing translations:\n{missing_translations}\n")
-        
 
-        # Process missing translations for each language
-        translations_to_process = []
-        for lang, missing_items in missing_translations.items():
-                
-            logger.info(f"[{sheet_name}] Found {len(missing_items)} missing translations for language {lang}")
-
-
-
-            # Prepare translation requests
-            for idx in missing_indices:
-                source_text = df.iloc[idx][source_lang_idx]
-                if pd.isna(source_text):
-                    continue
-                    
-                translations_to_process.append({
-                    'source_text': str(source_text),
-                    'target_lang': lang,
-                    'row_idx': idx
-                })
-        
-        if translations_to_process:
+        if missing_translations and len(missing_translations) > 0:
             # Process all translations and update the DataFrame
-            await self.process_translations(translations_to_process, df)
+            await self._process_missing_translations(missing_translations)
             
-            # Save the updated sheet
-            await self.sheets_handler.write_sheet(sheet_name, df)
-            logger.info(f"Updated sheet {sheet_name} with new translations")
+            logger.debug(f"Updated sheet '{sheet_name}' with new translations")
         else:
-            logger.info(f"No missing translations found for sheet {sheet_name}")
+            logger.debug(f"No missing translations found for sheet '{sheet_name}'")
 
+    async def _process_missing_translations(self, missing_translations) -> None:
 
+            
 
+        # First ensure term base is complete for all target languages
+        #await self.ensure_term_base_translations(target_langs)
+        
+        # Process each language group
+        for lang, missing_items in missing_translations.items():
+            texts = []
+            contexts = []
+            cells = []
+            
+            # Extract texts, contexts, and row indices
+            for item in missing_items:
+                texts.append(item['source_text'])
+                contexts.append(item.get('context', ''))
+                if 'row_idx' in item:
+                    cells.append(item['row_idx'])
+            
+            # Get term base for this language
+            term_base = self.term_base_handler.get_terms_for_language(lang)
+            
+            # Process the batch
+            async for batch_results in self._batch_translate(
+                texts=texts,
+                target_lang=lang,
+                contexts=contexts,
+                cells=cells,
+                term_base=term_base
+            ):
+                pass
 
+    ###########################################################################
+    # Term Base
+    ###########################################################################
     async def ensure_term_base_translations(self, target_langs: List[str]) -> None:
         """Ensure all terms in the term base have translations for target languages.
         This should be called before starting translation of other sheets.
@@ -513,7 +465,7 @@ Translate each text maintaining all rules. Return translations and term suggesti
             term_base = self.term_base_handler.get_terms_for_language(lang)
             
             # Translate the batch
-            async for batch_results in self.batch_translate(
+            async for batch_results in self._batch_translate(
                 texts=source_texts,
                 target_lang=lang,
                 contexts=contexts,

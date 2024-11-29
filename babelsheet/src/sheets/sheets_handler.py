@@ -74,7 +74,7 @@ class SheetsHandler:
 
                 self._sheets[sheet_name] = df
                 
-            logger.info(f"Loaded {len(self._sheets)} sheets into memory: {self.get_sheet_names()}")
+            logger.debug(f"Loaded {len(self._sheets)} sheets into memory: {self.get_sheet_names()}")
 
         except Exception as e:
             logger.error(f"Error loading spreadsheet: {str(e)}")

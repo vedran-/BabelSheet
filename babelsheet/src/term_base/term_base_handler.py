@@ -31,7 +31,7 @@ class TermBaseHandler:
         Raises:
             ValueError: If sheet access fails or required columns are missing
         """
-        self.logger.info(f"Loading term base from sheet: {self.sheet_name}")
+        self.logger.debug(f"Loading term base from sheet: {self.sheet_name}")
         self.sheet_data = self.sheets_handler.get_sheet_data(self.sheet_name)
 
         # Find the index of the term column
@@ -40,7 +40,7 @@ class TermBaseHandler:
             raise ValueError(f"Required column '{self.term_column_name}' not found in term base sheet")
 
         # Find the indexes of the context columns
-        self.logger.info(f"Successfully loaded {len(self.sheet_data.iloc[:, self.term_column_index])} terms")
+        self.logger.info(f"Successfully loaded Term Base from sheet '{self.sheet_name}' ({len(self.sheet_data.iloc[:, self.term_column_index])} terms)")
 
     def get_terms_for_language(self, lang: str) -> Dict[str, Dict[str, Any]]:
         """Get all terms for a specific language.

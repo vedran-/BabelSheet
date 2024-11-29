@@ -177,7 +177,7 @@ async def translate(ctx, target_langs, verbose):
 
     # Initialize TermBaseHandler
     ctx.term_base_handler = TermBaseHandler(ctx)
-    logger.info(f"Successfully initialized term base handler with sheet: {ctx.term_base_handler.sheet_name}")
+    logger.debug(f"Successfully initialized Term Base handler with sheet: {ctx.term_base_handler.sheet_name}")
 
     """
     #terms = ctx.term_base_handler.get_terms_for_language(ctx.target_langs[0])
@@ -269,7 +269,7 @@ async def translate(ctx, target_langs, verbose):
             term_base = term_base_handler.get_terms_for_language(lang)
             
             # Translate and process each batch
-            async for batch_results in translation_manager.batch_translate(
+            async for batch_results in translation_manager._batch_translate(
                 texts=texts,
                 target_lang=lang,
                 contexts=contexts,
