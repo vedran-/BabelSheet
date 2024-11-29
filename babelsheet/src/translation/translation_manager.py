@@ -49,6 +49,78 @@ class TranslationManager:
         self.retry_delay = llm_config.get('retry_delay', 1)  # seconds
         
 
+    async def translate_text(self, source_texts: List[str], source_lang: str, target_lang: str, 
+                           contexts: List[str] = None, term_base: Dict[str, str] = None) -> List[Tuple[str, List[str]]]:
+        """Translate a batch of texts and validate the translations.
+        
+        Args:
+            source_texts: List of texts to translate
+            source_lang: Source language code
+            target_lang: Target language code
+            contexts: Optional list of context strings for each text
+            term_base: Optional term base dictionary
+            
+        Returns:
+            List of tuples containing (translated_text, issues) for each input text
+        """
+        if contexts is None:
+            contexts = [""] * len(source_texts)
+            
+        if len(contexts) != len(source_texts):
+            raise ValueError("Number of contexts must match number of source texts")
+            
+        retries = 0
+        last_error = None
+        
+        while retries < self.max_retries:
+            try:
+                results = await self._perform_translation(
+                    source_texts, source_lang, target_lang, contexts, term_base
+                )
+                return results
+            except (
+                TimeoutError,  # Network timeouts
+                ConnectionError,  # Connection issues
+                json.JSONDecodeError,  # Response parsing errors
+                asyncio.TimeoutError,  # Async timeouts
+            ) as e:
+                last_error = e
+                retries += 1
+                if retries == self.max_retries:
+                    logger.error(f"Failed to translate after {self.max_retries} attempts: {str(e)}")
+                    raise
+                logger.warning(f"Translation attempt {retries} failed, retrying in {self.retry_delay} seconds...")
+                await asyncio.sleep(self.retry_delay * retries)  # Exponential backoff
+
+
+
+
+    async def ensure_sheet_translations(self, sheet_name: str, source_lang: str, 
+                                        target_langs: List[str], use_term_base: bool) -> None:
+        """Ensure all terms in the term base have translations for target languages.
+        This should be called before starting translation of other sheets.
+        
+        Args:
+            sheet_name: Name of the sheet to ensure translations for
+            source_lang: Source language code
+            target_langs: List of target language codes
+        """
+        logger.debug(f"Ensuring translations for sheet '{sheet_name}' from '{source_lang}' to {target_langs}")
+        
+        # Get the sheet data
+        df = self.sheets_handler.get_sheet_data(sheet_name)
+        # Detect missing translations
+        missing_translations = self.detect_missing_translations(df, source_lang, target_langs)
+        logger.info(f"Found missing translations for {len(missing_translations)} languages: {list(missing_translations.keys())}")
+
+        if missing_translations and len(missing_translations) > 0:
+            # Process all translations and update the DataFrame
+            await self._process_missing_translations(missing_translations, use_term_base)
+            
+            logger.debug(f"Updated sheet '{sheet_name}' with new translations")
+        else:
+            logger.debug(f"No missing translations found for sheet '{sheet_name}'")
+
     def detect_missing_translations(self, df: pd.DataFrame, source_lang: str, target_langs: List[str]) -> Dict[str, List[int]]:
         """Detect missing translations in the DataFrame.
         
@@ -108,48 +180,101 @@ class TranslationManager:
         
         return missing_translations
 
-    async def translate_text(self, source_texts: List[str], source_lang: str, target_lang: str, 
-                           contexts: List[str] = None, term_base: Dict[str, str] = None) -> List[Tuple[str, List[str]]]:
-        """Translate a batch of texts and validate the translations.
+    async def _process_missing_translations(self, missing_translations, use_term_base: bool ) -> None:
+        # First ensure term base is complete for all target languages
+        #if use_term_base:
+        #    await self.ensure_term_base_translations(target_langs)
+        
+        # Process each language group
+        for lang, missing_items in missing_translations.items():
+            texts = []
+            contexts = []
+            cells = []
+            
+            # Extract texts, contexts, and row indices
+            for item in missing_items:
+                texts.append(item['source_text'])
+                contexts.append(item.get('context', ''))
+                if 'row_idx' in item:
+                    cells.append(item['row_idx'])
+            
+            # Get term base for this language
+            term_base = self.term_base_handler.get_terms_for_language(lang) if use_term_base else None
+            
+            # Process the batch
+            async for batch_results in self._batch_translate(
+                texts=texts,
+                target_lang=lang,
+                contexts=contexts,
+                cells=cells,
+                term_base=term_base
+            ):
+                pass
+
+    async def _batch_translate(self, texts: List[str], target_lang: str,
+                            contexts: List[str],
+                            cells: List[Any],
+                            term_base: Dict[str, Dict[str, Any]] = None
+                            ) -> AsyncGenerator[List[Dict[str, Any]], None]:
+        """Translate a batch of texts.
         
         Args:
-            source_texts: List of texts to translate
-            source_lang: Source language code
+            texts: List of texts to translate
             target_lang: Target language code
-            contexts: Optional list of context strings for each text
-            term_base: Optional term base dictionary
+            contexts: List of context strings for each text
+            cells: List of cell indices for DataFrame updates
+            term_base: Term base dictionary
             
-        Returns:
-            List of tuples containing (translated_text, issues) for each input text
+        Yields:
+            List of dictionaries containing translations and metadata for each batch
         """
-        if contexts is None:
-            contexts = [""] * len(source_texts)
-            
-        if len(contexts) != len(source_texts):
-            raise ValueError("Number of contexts must match number of source texts")
-            
-        retries = 0
-        last_error = None
+        if len(texts) != len(contexts) or len(texts) != len(cells):
+            raise ValueError("Number of texts, contexts and cells must match")
         
-        while retries < self.max_retries:
-            try:
-                results = await self._perform_translation(
-                    source_texts, source_lang, target_lang, contexts, term_base
-                )
-                return results
-            except (
-                TimeoutError,  # Network timeouts
-                ConnectionError,  # Connection issues
-                json.JSONDecodeError,  # Response parsing errors
-                asyncio.TimeoutError,  # Async timeouts
-            ) as e:
-                last_error = e
-                retries += 1
-                if retries == self.max_retries:
-                    logger.error(f"Failed to translate after {self.max_retries} attempts: {str(e)}")
-                    raise
-                logger.warning(f"Translation attempt {retries} failed, retrying in {self.retry_delay} seconds...")
-                await asyncio.sleep(self.retry_delay * retries)  # Exponential backoff
+        # Process in batches
+        for i in range(0, len(texts), self.batch_size):
+            batch_texts = texts[i:i + self.batch_size]
+            batch_contexts = contexts[i:i + self.batch_size]
+            batch_cells = cells[i:i + self.batch_size]
+            
+            logger.info(f"Processing batch {i//self.batch_size + 1} of {(len(texts) + self.batch_size - 1)//self.batch_size}")
+            
+            # Process the entire batch at once
+            batch_translations = await self._perform_translation(
+                source_texts=batch_texts,
+                source_lang=self.config['languages']['source'],
+                target_lang=target_lang,
+                contexts=batch_contexts,
+                term_base=term_base
+            )
+            
+            # Process each translation in the batch
+            batch_results = []
+            for j, (text, context, (translation, issues)) in enumerate(zip(batch_texts, batch_contexts, batch_translations)):
+                result = {
+                    'source_text': text,
+                    'translated_text': translation,
+                    'context': context,
+                    'issues': issues,
+                    'batch_number': i//self.batch_size + 1
+                }
+                
+                # Update DataFrame if provided
+                if df is not None and batch_indices is not None:
+                    df.loc[batch_indices[j], target_lang] = translation
+                
+                # Update term base if this is a term that needs translation
+                if text in self.term_base_handler.term_base:
+                    self.term_base_handler.update_translations(text, {target_lang: translation})
+                
+                batch_results.append(result)
+            
+            yield batch_results
+            
+            # Apply batch delay if this is not the last batch
+            if i + self.batch_size < len(texts):
+                logger.debug(f"Waiting {self.batch_delay} seconds before processing next batch...")
+                await asyncio.sleep(self.batch_delay)
 
     async def _perform_translation(self, source_texts: List[str], source_lang: str, 
                                  target_lang: str, contexts: List[str],
@@ -295,186 +420,3 @@ Translate each text maintaining all rules. Return translations and term suggesti
             results.append((translated_text, translator_notes + validation_issues))
         
         return results
-
-    async def _batch_translate(self, texts: List[str], target_lang: str,
-                            contexts: List[str],
-                            cells: List[Any],
-                            term_base: Dict[str, Dict[str, Any]] = None
-                            ) -> AsyncGenerator[List[Dict[str, Any]], None]:
-        """Translate a batch of texts.
-        
-        Args:
-            texts: List of texts to translate
-            target_lang: Target language code
-            contexts: List of context strings for each text
-            cells: List of cell indices for DataFrame updates
-            term_base: Term base dictionary
-            
-        Yields:
-            List of dictionaries containing translations and metadata for each batch
-        """
-        if len(texts) != len(contexts) or len(texts) != len(cells):
-            raise ValueError("Number of texts, contexts and cells must match")
-        
-        # Process in batches
-        for i in range(0, len(texts), self.batch_size):
-            batch_texts = texts[i:i + self.batch_size]
-            batch_contexts = contexts[i:i + self.batch_size]
-            batch_cells = cells[i:i + self.batch_size]
-            
-            logger.info(f"Processing batch {i//self.batch_size + 1} of {(len(texts) + self.batch_size - 1)//self.batch_size}")
-            
-            # Process the entire batch at once
-            batch_translations = await self._perform_translation(
-                source_texts=batch_texts,
-                source_lang=self.config['languages']['source'],
-                target_lang=target_lang,
-                contexts=batch_contexts,
-                term_base=term_base
-            )
-            
-            # Process each translation in the batch
-            batch_results = []
-            for j, (text, context, (translation, issues)) in enumerate(zip(batch_texts, batch_contexts, batch_translations)):
-                result = {
-                    'source_text': text,
-                    'translated_text': translation,
-                    'context': context,
-                    'issues': issues,
-                    'batch_number': i//self.batch_size + 1
-                }
-                
-                # Update DataFrame if provided
-                if df is not None and batch_indices is not None:
-                    df.loc[batch_indices[j], target_lang] = translation
-                
-                # Update term base if this is a term that needs translation
-                if text in self.term_base_handler.term_base:
-                    self.term_base_handler.update_translations(text, {target_lang: translation})
-                
-                batch_results.append(result)
-            
-            yield batch_results
-            
-            # Apply batch delay if this is not the last batch
-            if i + self.batch_size < len(texts):
-                logger.debug(f"Waiting {self.batch_delay} seconds before processing next batch...")
-                await asyncio.sleep(self.batch_delay)
-
-
-
-
-    async def ensure_sheet_translations(self, sheet_name: str, source_lang: str, target_langs: List[str]) -> None:
-        """Ensure all terms in the term base have translations for target languages.
-        This should be called before starting translation of other sheets.
-        
-        Args:
-            sheet_name: Name of the sheet to ensure translations for
-            source_lang: Source language code
-            target_langs: List of target language codes
-        """
-        logger.debug(f"Ensuring translations for sheet '{sheet_name}' from '{source_lang}' to {target_langs}")
-        
-        # Get the sheet data
-        df = self.sheets_handler.get_sheet_data(sheet_name)
-        # Detect missing translations
-        missing_translations = self.detect_missing_translations(df, source_lang, target_langs)
-
-        if missing_translations and len(missing_translations) > 0:
-            # Process all translations and update the DataFrame
-            await self._process_missing_translations(missing_translations)
-            
-            logger.debug(f"Updated sheet '{sheet_name}' with new translations")
-        else:
-            logger.debug(f"No missing translations found for sheet '{sheet_name}'")
-
-    async def _process_missing_translations(self, missing_translations) -> None:
-
-            
-
-        # First ensure term base is complete for all target languages
-        #await self.ensure_term_base_translations(target_langs)
-        
-        # Process each language group
-        for lang, missing_items in missing_translations.items():
-            texts = []
-            contexts = []
-            cells = []
-            
-            # Extract texts, contexts, and row indices
-            for item in missing_items:
-                texts.append(item['source_text'])
-                contexts.append(item.get('context', ''))
-                if 'row_idx' in item:
-                    cells.append(item['row_idx'])
-            
-            # Get term base for this language
-            term_base = self.term_base_handler.get_terms_for_language(lang)
-            
-            # Process the batch
-            async for batch_results in self._batch_translate(
-                texts=texts,
-                target_lang=lang,
-                contexts=contexts,
-                cells=cells,
-                term_base=term_base
-            ):
-                pass
-
-    ###########################################################################
-    # Term Base
-    ###########################################################################
-    async def ensure_term_base_translations(self, target_langs: List[str]) -> None:
-        """Ensure all terms in the term base have translations for target languages.
-        This should be called before starting translation of other sheets.
-        
-        Args:
-            target_langs: List of target language codes
-        """
-        logger.info(f"Checking term base translations for languages: {target_langs}")
-        
-        # Get all terms that need translation
-        missing_translations = {}
-        for term, data in self.term_base_handler.term_base.items():
-            translations = data['translations']
-            comment = data['comment']
-            
-            # Check each target language
-            for lang in target_langs:
-                if lang not in translations or not translations[lang]:
-                    if lang not in missing_translations:
-                        missing_translations[lang] = []
-                    missing_translations[lang].append({
-                        'term': term,
-                        'context': comment
-                    })
-        
-        if not missing_translations:
-            logger.info("All terms have translations for target languages")
-            return
-        
-        # Translate missing terms for each language
-        for lang, terms in missing_translations.items():
-            logger.info(f"Translating {len(terms)} missing terms for language {lang}")
-            
-            # Process terms in batches
-            source_texts = [item['term'] for item in terms]
-            contexts = [item['context'] for item in terms]
-            
-            # Get term base for this language
-            term_base = self.term_base_handler.get_terms_for_language(lang)
-            
-            # Translate the batch
-            async for batch_results in self._batch_translate(
-                texts=source_texts,
-                target_lang=lang,
-                contexts=contexts,
-                term_base=term_base
-            ):
-                # Update term base with translations
-                for result in batch_results:
-                    term = result['source_text']
-                    translation = result['translated_text']
-                    self.term_base_handler.update_translations(term, {lang: translation})
-                    
-                logger.info(f"Updated term base with batch {batch_results[0]['batch_number']} translations")

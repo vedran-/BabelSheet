@@ -207,7 +207,7 @@ async def translate(ctx, target_langs, verbose):
     if ctx.term_base_handler:
         logger.debug("Ensuring term base translations are up to date...")
         await translation_manager.ensure_sheet_translations(ctx.term_base_handler.sheet_name, 
-            ctx.source_lang, ctx.target_langs)
+            ctx.source_lang, ctx.target_langs, use_term_base=False)
     
     # Process each sheet
     sheet_names = ctx.sheets_handler.get_all_sheets()
