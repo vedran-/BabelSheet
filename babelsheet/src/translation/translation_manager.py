@@ -5,12 +5,11 @@ import json
 from ..utils.qa_handler import QAHandler
 from ..term_base.term_base_handler import TermBaseHandler
 from ..sheets.sheets_handler import SheetsHandler, CellData
-from ..utils.ui_manager import UIManager
+from ..utils.ui_manager import create_ui_manager
 import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
-ui = UIManager()
 
 class TranslationManager:
     def __init__(self, config: Dict, sheets_handler: SheetsHandler, term_base_handler: TermBaseHandler):
@@ -43,6 +42,9 @@ class TranslationManager:
         self.batch_delay = llm_config.get('batch_delay', 1)
         self.max_retries = llm_config.get('max_retries', 3)
         self.retry_delay = llm_config.get('retry_delay', 1)  # seconds
+        
+        # Initialize UI Manager
+        self.ui = create_ui_manager(config)
 
     async def ensure_sheet_translations(self, sheet_name: str, source_lang: str, 
                                         target_langs: List[str], use_term_base: bool) -> None:
@@ -139,8 +141,8 @@ class TranslationManager:
         total_items = sum(len(items) for items in missing_translations.values())
         processed_items = 0
         
-        ui.start()
-        ui.info(f"Starting batch translation for {len(missing_translations)} languages ({total_items} items total)")
+        self.ui.start()
+        self.ui.info(f"Starting batch translation for {len(missing_translations)} languages ({total_items} items total)")
         
         try:
             while len(missing_translations) > 0:
@@ -149,7 +151,7 @@ class TranslationManager:
                 
                 # Add pending translations to UI
                 for item in batch:
-                    ui.add_translation_entry(item['source_text'], lang)
+                    self.ui.add_translation_entry(item['source_text'], lang)
                 
                 # Perform translation
                 contexts = [self.sheets_handler.get_row_context(df, item['row_idx']) for item in batch]
@@ -167,7 +169,7 @@ class TranslationManager:
                     processed_items += 1
                     
                     if issues:
-                        ui.warning(f"Translation '{translation}' has issues for {lang}: {issues}")
+                        self.ui.warning(f"Translation '{translation}' has issues for {lang}: {issues}")
                         all_issues = missing_item.get('last_issues', []) + [{
                             'translation': translation,
                             'issues': issues,
@@ -175,11 +177,11 @@ class TranslationManager:
                         missing_item['last_issues'] = all_issues
                         
                         if len(all_issues) >= self.max_retries:
-                            ui.critical(f"Max retries reached for {lang} item {missing_item['source_text']}. Giving up.")
+                            self.ui.critical(f"Max retries reached for {lang} item {missing_item['source_text']}. Giving up.")
                             skipped_items.append(missing_item)
                             missing_items.remove(missing_item)
                         
-                        ui.complete_translation(missing_item['source_text'], lang, translation, str(issues))
+                        self.ui.complete_translation(missing_item['source_text'], lang, translation, str(issues))
                     else:
                         self.sheets_handler.modify_cell_data(
                             sheet_name=sheet_name,
@@ -188,19 +190,19 @@ class TranslationManager:
                             value=translation
                         )
                         missing_items.remove(missing_item)
-                        ui.complete_translation(missing_item['source_text'], lang, translation)
+                        self.ui.complete_translation(missing_item['source_text'], lang, translation)
                 
                 if len(missing_items) == 0:
                     missing_translations.pop(lang)
-                    ui.info(f"Completed all translations for {lang}")
+                    self.ui.info(f"Completed all translations for {lang}")
                 
                 # Start new batch
-                ui.start_new_batch()
+                self.ui.start_new_batch()
             
             if skipped_items:
-                ui.warning(f"Skipped {len(skipped_items)} items due to max retries")
+                self.ui.warning(f"Skipped {len(skipped_items)} items due to max retries")
         finally:
-            ui.stop()
+            self.ui.stop()
 
     def _prepare_texts_with_contexts(self, source_texts: List[str], 
                                      contexts: List[Dict[str, Any]], 

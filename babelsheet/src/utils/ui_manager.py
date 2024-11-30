@@ -273,3 +273,144 @@ class UIManager:
         # If entry not in current batch, add it
         self._current_batch.append(entry)
         self._update_display()
+
+class SimpleUIManager:
+    """A simpler UI manager that uses standard logging output."""
+    
+    def __init__(self, max_history: int = 100, status_lines: int = 6):
+        """Initialize Simple UI Manager.
+        
+        Args:
+            max_history: Not used in simple mode
+            status_lines: Not used in simple mode
+        """
+        self.logger = logging.getLogger(__name__)
+        self.console = Console()  # For colored output
+        
+    def start(self):
+        """Start logging - no-op in simple mode."""
+        pass
+        
+    def stop(self):
+        """Stop logging - no-op in simple mode."""
+        pass
+        
+    def add_translation_entry(self, source: str, lang: str, status: str = "⏳", 
+                            translation: str = "", error: str = "", entry_type: str = "translation"):
+        """Log a translation entry.
+        
+        Args:
+            source: Source text
+            lang: Target language
+            status: Status emoji
+            translation: Translated text
+            error: Error message if any
+            entry_type: Type of entry ("translation" or "term_base")
+        """
+        # Create colored text for translation and error
+        output = Text()
+        
+        # Add time
+        output.append(f"[{datetime.now().strftime('%H:%M:%S')}] ", style="cyan")
+        
+        # Add status icon and source
+        output.append(f"{status} ", style="bold")
+        output.append(f"[{lang}] ", style="magenta")
+        output.append(f"{source} → ")
+        
+        # Add translation with appropriate color
+        if translation:
+            color = "yellow"  # Default color for in-progress
+            if status.startswith("✓"):  # Done
+                color = "green"
+            elif status.startswith("❌"):  # Failed
+                color = "red"
+            elif entry_type == "term_base":
+                color = "blue"
+                
+            if isinstance(translation, Text):
+                output.append(translation)  # Use existing Text object
+            else:
+                output.append(translation, style=color)
+        
+        # Add error in default color
+        if error:
+            if translation:
+                output.append("\n    ")  # Indent error message
+            output.append(error)  # No style means default white color
+            
+        # Print the output
+        self.console.print(output)
+        
+    def complete_translation(self, source: str, lang: str, translation: str, error: str = ""):
+        """Log a completed translation."""
+        status = "❌" if error else "✓"
+        self.add_translation_entry(source, lang, status, translation, error)
+        
+    def start_new_batch(self):
+        """Start a new batch - prints a separator in simple mode."""
+        self.console.print("─" * 80, style="dim")
+        
+    def add_status(self, message: str, level: str = "info"):
+        """Add a status message using standard logging."""
+        time = datetime.now().strftime("%H:%M:%S")
+        style = {
+            "debug": "dim",
+            "info": "white",
+            "warning": "yellow",
+            "error": "red bold",
+            "critical": "red bold reverse"
+        }.get(level, "white")
+        
+        msg = Text()
+        msg.append(f"[{time}] ", style="cyan")
+        msg.append(message, style=style)
+        
+        self.console.print(msg)
+        
+    def info(self, message: str):
+        self.add_status(message, "info")
+        
+    def warning(self, message: str):
+        self.add_status(message, "warning")
+        
+    def error(self, message: str):
+        self.add_status(message, "error")
+        
+    def critical(self, message: str):
+        self.add_status(message, "critical")
+        
+    def debug(self, message: str):
+        self.add_status(message, "debug")
+        
+    def add_term_base_entry(self, term: str, lang: str, translation: str = "", comment: str = ""):
+        """Log a term base entry."""
+        status = "📖"
+        
+        # Create text with colored translation and default color comment
+        translation_text = Text()
+        if translation:
+            translation_text.append(translation, style="blue")  # Term base entries in blue
+            
+        if comment:
+            if translation:
+                translation_text.append(" ")
+            translation_text.append("(Comment: " + comment + ")")  # Comment in default color
+                
+        self.add_translation_entry(term, lang, status, translation_text, entry_type="term_base")
+
+def create_ui_manager(config: Dict[str, Any], max_history: int = 100, status_lines: int = 6) -> UIManager:
+    """Create the appropriate UI manager based on configuration.
+    
+    Args:
+        config: Configuration dictionary
+        max_history: Maximum history entries
+        status_lines: Number of status lines
+        
+    Returns:
+        UIManager instance (either fancy or simple)
+    """
+    use_simple_output = config.get('ui', {}).get('simple_output', False)
+    if use_simple_output:
+        return SimpleUIManager(max_history, status_lines)
+    return UIManager(max_history, status_lines)

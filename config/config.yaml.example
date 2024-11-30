@@ -45,3 +45,6 @@ term_base:
 languages:
   source: "en"
   target: ["es", "fr", "de"]  # Default target languages if not specified via CLI
+
+ui:
+  simple_output: false  # If true, use simple console output instead of fancy UI

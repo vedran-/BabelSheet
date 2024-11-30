@@ -50,6 +50,9 @@ def validate_config(config):
         'qa': {
             'non_translatable_patterns': list,
             'max_length': (int, type(None))  # Optional
+        },
+        'ui': {
+            'simple_output': (bool, type(None))  # Optional
         }
     }
 
@@ -143,16 +146,27 @@ def cli(ctx, config):
     count=True,
     help='Increase verbosity (use -v for info, -vv for debug, -vvv for trace)'
 )
+@click.option(
+    '--simple-output',
+    is_flag=True,
+    help='Use simple console output instead of fancy UI'
+)
 @click.pass_context
-def translate_command(ctx, target_langs, sheet_id, verbose):
+def translate_command(ctx, target_langs, sheet_id, verbose, simple_output):
     """Translate missing entries in the specified Google Sheet."""
     setup_logging(verbose)
 
     # Update config with CLI sheet_id if provided
     if sheet_id:
         ctx.obj['config']['google_sheets']['spreadsheet_id'] = sheet_id
+        
+    # Update config with simple output option if provided
+    if simple_output:
+        if 'ui' not in ctx.obj['config']:
+            ctx.obj['config']['ui'] = {}
+        ctx.obj['config']['ui']['simple_output'] = True
     
-    # Validate config after potential sheet_id update
+    # Validate config after potential updates
     validate_config(ctx.obj['config'])
     
     # Ensure we have a sheet_id from somewhere

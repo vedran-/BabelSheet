@@ -7,6 +7,7 @@ def main():
     parser.add_argument('--sheet-id', help='Google Sheet ID to process')
     parser.add_argument('--target-langs', help='Comma-separated list of target languages')
     parser.add_argument('--dry-run', action='store_true', help='Show what would be done without making changes')
+    parser.add_argument('--simple-output', action='store_true', help='Use simple console output instead of fancy UI')
     
     args = parser.parse_args()
     
