@@ -173,11 +173,6 @@ class TranslationManager:
             
         # Display summary
         self.ui.info("=" * 80)
-        self.ui.info(header)
-        self.ui.info("-" * 80)
-        self.ui.info(f"Total translations attempted: {total}")
-        self.ui.info(f"Successful translations: {self.stats['successful_translations']} ({success_rate:.1f}%)")
-        self.ui.info(f"Failed translations: {self.stats['failed_translations']} ({100-success_rate:.1f}%)")
         
         # Display failed items if any
         if self.stats['failed_items']:
@@ -192,6 +187,13 @@ class TranslationManager:
                 for issue in item['issues']:
                     self.ui.info(f"  - {issue}")
                 self.ui.info("-" * 40)
+
+        self.ui.info("=" * 80)
+        self.ui.info(header)
+        self.ui.info("-" * 80)
+        self.ui.info(f"Total translations attempted: {total}")
+        self.ui.info(f"Successful translations: {self.stats['successful_translations']} ({success_rate:.1f}%)")
+        self.ui.info(f"Failed translations: {self.stats['failed_translations']} ({100-success_rate:.1f}%)")
         self.ui.info("=" * 80)
 
     def _detect_missing_translations(self, df: pd.DataFrame, source_lang: str, target_langs: List[str]) -> Dict[str, List[Dict[str, Any]]]:
@@ -268,7 +270,7 @@ class TranslationManager:
         sheet_names = self.sheets_handler.get_sheet_names()
         total_sheets = len(sheet_names)
         
-        self.ui.info(f"Collecting missing translations from {total_sheets} sheets...")
+        self.ui.debug(f"Collecting missing translations from {total_sheets} sheets...")
         
         # Process each sheet
         for i, sheet_name in enumerate(sheet_names, 1):
@@ -276,7 +278,7 @@ class TranslationManager:
             if self.term_base_handler and sheet_name == self.term_base_handler.sheet_name:
                 continue
                 
-            self.ui.info(f"Analyzing sheet {i}/{total_sheets}: {sheet_name}")
+            self.ui.debug(f"Analyzing sheet {i}/{total_sheets}: {sheet_name}")
             
             # Get the sheet data
             df = self.sheets_handler.get_sheet_data(sheet_name)
@@ -288,9 +290,9 @@ class TranslationManager:
             # Report findings for this sheet
             if sheet_missing:
                 sheet_total = sum(len(items) for items in sheet_missing.values())
-                self.ui.info(f"Found {sheet_total} missing translations in {sheet_name}:")
+                self.ui.debug(f"Found {sheet_total} missing translations in {sheet_name}:")
                 for lang, items in sheet_missing.items():
-                    self.ui.info(f"  - {lang}: {len(items)} items")
+                    self.ui.debug(f"  - {lang}: {len(items)} items")
             
             # Merge with all missing translations
             for lang, items in sheet_missing.items():
@@ -301,12 +303,12 @@ class TranslationManager:
         # Log final summary
         if all_missing_translations:
             total_missing = sum(len(items) for items in all_missing_translations.values())
-            self.ui.info("\nCollection complete. Summary of all missing translations:")
+            self.ui.debug("\nCollection complete. Summary of all missing translations:")
             for lang, items in all_missing_translations.items():
-                self.ui.info(f"  - {lang}: {len(items)} items")
-            self.ui.info(f"Total missing translations: {total_missing}")
+                self.ui.debug(f"  - {lang}: {len(items)} items")
+            self.ui.debug(f"Total missing translations: {total_missing}")
         else:
-            self.ui.info("\nNo missing translations found in any sheet.")
+            self.ui.debug("\nNo missing translations found in any sheet.")
         
         return all_missing_translations
 
@@ -523,11 +525,11 @@ class TranslationManager:
             Complete prompt string
         """
         return f"""You are a world-class expert in translating to {target_lang}, 
-specialized for casual mobile games. Translate the following texts professionally:
+specialized for casual mobile games. Your task is to provide accurate and culturally appropriate translations while learning from any previous translation attempts.
 
 {combined_texts}
 
-Rules:
+Translation Rules:
 - Use provided term base for consistency
 - Don't translate special terms which match the following patterns: {str(self.config['qa']['non_translatable_patterns'])}
 - Keep appropriate format (uppercase/lowercase)
@@ -536,20 +538,31 @@ Rules:
 - Keep translations concise to fit UI elements
 - Localize all output text, except special terms between markup characters
 - It is ok to be polarizing, don't be neutral - but avoid offensive language
-- Review previous failed translations and avoid making the same mistakes
 
-Additionally, identify any important unique terms, like character or item names, in the source text that should be added to the term base.
-Term Base Rules:
-- Only suggest game-specific terms or terms requiring consistent translation, like character or item names
-- Don't suggest terms which are common language words or phrases - only suggest terms which are unique to the game.
-- For each suggested term, provide:
+Critical Instructions for Previously Failed Translations:
+When you see <FAILED_TRANSLATION> tags in the context:
+1. These represent previous translation attempts that were rejected
+2. Study each failed translation and its error message carefully
+3. Identify specific issues that caused the rejection
+4. Ensure your new translation:
+   - Addresses all previous error points
+   - Maintains the original meaning
+   - Avoids similar mistakes
+   - Improves upon the previous attempts
+5. Double-check your translation against all identified issues before submitting
+
+Term Base Management:
+Identify any important unique terms in the source text that should be added to the term base:
+- Only suggest game-specific terms or terms requiring consistent translation
+- Don't suggest common language words/phrases
+- Don't suggest terms already in the term base
+- Don't suggest special terms matching non-translatable patterns
+For each suggested term, provide:
   * The term in the source language
   * A suggested translation
   * A brief comment explaining its usage/context in the source language ({source_lang})
-- Don't suggest terms that are already in the term base
-- Don't suggest special terms that match the non-translatable patterns
 
-Translate each text maintaining all rules. Return translations and term suggestions in a structured JSON format."""
+Return translations and term suggestions in a structured JSON format."""
 
     def _get_translation_schema(self) -> Dict[str, Any]:
         """Get the schema for translation response validation.
@@ -692,12 +705,18 @@ Translate each text maintaining all rules. Return translations and term suggesti
             
             # If there are no syntax issues, add to LLM validation batch
             if len(syntax_issues) == 0:
-                llm_validation_items.append({
+                validation_item = {
                     'source_text': source_texts[i],
                     'translated_text': translated_text,
                     'context': contexts[i],
                     'previous_issues': previous_issues[i]
-                })
+                }
+                
+                # Add term base if available
+                if term_base:
+                    validation_item['term_base'] = term_base
+                
+                llm_validation_items.append(validation_item)
                 llm_validation_indexes.append(i)
             
             # Store initial results with syntax issues

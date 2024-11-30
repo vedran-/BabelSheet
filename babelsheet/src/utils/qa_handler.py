@@ -197,10 +197,19 @@ class QAHandler:
         """
         combined_prompt = (
             f"You are a professional translation validator for {target_lang} language. "
-            f"You are given a list of translations and their context. "
-            f"Please review and evaluate each translation below, and return `is_valid` set to true if the particular translation passes quality check, or false if it has to be rejected and translated again.\n\n"
+            f"Your task is to meticulously evaluate each translation for accuracy, consistency, and adherence to provided guidelines.\n\n"
         )
         
+        # Add term base information if available
+        if any('term_base' in item for item in items):
+            combined_prompt += (
+                "Term Base Guidelines:\n"
+                "- Verify that all term base translations are used consistently\n"
+                "- Check that game-specific terms match their approved translations\n"
+                "- Ensure special terms are preserved exactly as specified\n"
+                "- Flag any deviations from term base translations\n\n"
+            )
+
         for i, item in enumerate(items, 1):
             combined_prompt += (
                 f"Translation #{i}:\n"
@@ -209,17 +218,34 @@ class QAHandler:
                 f"Context: {item['context']}\n"
             )
 
+            # Add term base entries if available
+            term_base = item.get('term_base', None)
+            if term_base and len(term_base) > 0:
+                combined_prompt += "Term Base Entries:\n"
+                for term, data in term_base.items():
+                    combined_prompt += f"- {term}: {data['translation']} (Context: {data['context']})\n"
+
             if item['previous_issues'] and len(item['previous_issues']) > 0:
                 combined_prompt += f"Previous issues: {item['previous_issues']}\n"
 
             combined_prompt += "\n"
-        
+
         combined_prompt += (
             f"For each translation, evaluate:\n"
             f"1. Semantic accuracy (does it convey the same meaning?)\n"
-            f"2. Cultural appropriateness\n"
+            f"2. Regional and linguistic appropriateness (suitable for target language region, while maintaining the original tone even if provocative)\n"
             f"3. Natural flow and readability\n"
-            f"4. Consistency in tone and style"
+            f"4. Consistency in tone and style\n"
+            f"5. Correct usage of term base translations\n"
+            f"6. Preservation of special terms and markup\n"
+            f"7. Resolution of previous issues (if any)\n\n"
+            f"Pay special attention to:\n"
+            f"- Consistent use of approved terminology\n"
+            f"- Proper handling of game-specific terms\n"
+            f"- Whether previous translation issues have been properly addressed\n"
+            f"- Regional language conventions while preserving original intent and tone\n"
+            f"- Cultural nuances specific to the target language region"
+            f"- Keeping with syntax of the source text (e.g. punctuation, capitalization)"
         )
 
         validation_schema = {
@@ -251,7 +277,7 @@ class QAHandler:
             ],
             json_schema=validation_schema
         )
-        
+
         result = self.llm_handler.extract_structured_response(response)
         validations = result.get("validations", [])
         
