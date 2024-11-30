@@ -204,7 +204,8 @@ class QAHandler:
         """
         combined_prompt = (
             f"You are a professional translation validator for {target_lang} language. "
-            f"Please review these translations and evaluate each one:\n\n"
+            f"You are given a list of translations and their context. "
+            f"Please review and evaluate each translation below, and return `is_valid` set to true if the particular translation passes quality check, or false if it has to be rejected and translated again.\n\n"
         )
         
         for i, item in enumerate(items, 1):

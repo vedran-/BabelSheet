@@ -6,6 +6,9 @@ google_sheets:
     - "https://www.googleapis.com/auth/drive.readonly"
   spreadsheet_id: null  # Optional: can be provided via CLI
 
+output:
+  dir: "translation_logs"  # Directory for storing translation logs and reports
+
 llm:
   api_key: ""  # Set via LLM_API_KEY environment variable
   model: "claude-3-5-sonnet-20241022"  # Recommended models: claude-3-5-sonnet-20241022, claude-3-5-sonnet-20240620, gpt-4o

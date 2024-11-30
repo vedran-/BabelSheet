@@ -8,6 +8,9 @@ from ..sheets.sheets_handler import SheetsHandler, CellData
 from ..utils.ui_manager import create_ui_manager
 import asyncio
 import logging
+from datetime import datetime
+import os
+import pathlib
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +48,78 @@ class TranslationManager:
         
         # Initialize UI Manager
         self.ui = create_ui_manager(config)
+        
+        # Initialize statistics
+        self.stats = {
+            'successful_translations': 0,
+            'failed_translations': 0,
+            'failed_items': []  # List to store details of failed translations
+        }
+        
+        # Setup translation logging
+        output_config = config.get('output', {})
+        self.output_dir = pathlib.Path(output_config.get('dir', 'translation_logs'))
+        self._setup_translation_logging()
+
+    def _setup_translation_logging(self):
+        """Setup the translation logging directory and files."""
+        # Create output directory if it doesn't exist
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create timestamp for both files
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Setup failed translations file
+        self.failed_translations_file = self.output_dir / f"failed_translations_{timestamp}.txt"
+        self._initialize_translations_file(self.failed_translations_file, "Failed")
+        
+        # Setup successful translations file
+        self.successful_translations_file = self.output_dir / f"successful_translations_{timestamp}.txt"
+        self._initialize_translations_file(self.successful_translations_file, "Successful")
+        
+        logger.info(f"Failed translations will be logged to: {self.failed_translations_file}")
+        logger.info(f"Successful translations will be logged to: {self.successful_translations_file}")
+
+    def _initialize_translations_file(self, file_path: pathlib.Path, log_type: str):
+        """Create and initialize a translations log file."""
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(f"{log_type} Translations Log - Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write("=" * 80 + "\n\n")
+
+    def _log_translation_header(self, f):
+        """Write common header information to the log file."""
+        f.write(f"Time: {datetime.now().strftime('%H:%M:%S')}\n")
+
+    def _log_failed_translation(self, failed_item: Dict[str, Any]):
+        """Log a failed translation to the output file."""
+        try:
+            with open(self.failed_translations_file, 'a', encoding='utf-8') as f:
+                self._log_translation_header(f)
+                f.write(f"Sheet: {failed_item['sheet_name']}\n")
+                f.write(f"Language: {failed_item['lang']}\n")
+                f.write(f"Source Text: {failed_item['source_text']}\n")
+                f.write(f"Last Translation Attempt: {failed_item['last_translation']}\n")
+                f.write("Issues:\n")
+                for issue in failed_item['issues']:
+                    f.write(f"  - {issue}\n")
+                f.write("\n" + "=" * 80 + "\n\n")
+        except Exception as e:
+            logger.error(f"Failed to log failed translation: {e}")
+            # Continue execution even if logging fails
+
+    def _log_successful_translation(self, sheet_name: str, lang: str, source_text: str, translation: str):
+        """Log a successful translation to the output file."""
+        try:
+            with open(self.successful_translations_file, 'a', encoding='utf-8') as f:
+                self._log_translation_header(f)
+                f.write(f"Sheet: {sheet_name}\n")
+                f.write(f"Language: {lang}\n")
+                f.write(f"Source Text: {source_text}\n")
+                f.write(f"Translation: {translation}\n")
+                f.write("\n" + "=" * 80 + "\n\n")
+        except Exception as e:
+            logger.error(f"Failed to log successful translation: {e}")
+            # Continue execution even if logging fails
 
     async def ensure_sheet_translations(self, sheet_name: str, source_lang: str, 
                                         target_langs: List[str], use_term_base: bool) -> None:
@@ -71,8 +146,52 @@ class TranslationManager:
             await self._process_missing_translations(df, missing_translations, use_term_base)
             
             logger.debug(f"Updated sheet '{sheet_name}' with new translations")
+            
+            # Display statistics after processing each sheet
+            self._display_statistics(sheet_name)
         else:
             logger.debug(f"No missing translations found for sheet '{sheet_name}'")
+
+    def _display_statistics(self, sheet_name: Optional[str] = None) -> None:
+        """Display translation statistics.
+        
+        Args:
+            sheet_name: Optional sheet name for context
+        """
+        total = self.stats['successful_translations'] + self.stats['failed_translations']
+        if total == 0:
+            return
+            
+        # Calculate success rate
+        success_rate = (self.stats['successful_translations'] / total) * 100
+        
+        # Create header
+        header = "Translation Statistics"
+        if sheet_name:
+            header += f" for {sheet_name}"
+            
+        # Display summary
+        self.ui.info("=" * 80)
+        self.ui.info(header)
+        self.ui.info("-" * 80)
+        self.ui.info(f"Total translations attempted: {total}")
+        self.ui.info(f"Successful translations: {self.stats['successful_translations']} ({success_rate:.1f}%)")
+        self.ui.info(f"Failed translations: {self.stats['failed_translations']} ({100-success_rate:.1f}%)")
+        
+        # Display failed items if any
+        if self.stats['failed_items']:
+            self.ui.info("\nFailed Translations:")
+            self.ui.info("-" * 80)
+            for item in self.stats['failed_items']:
+                self.ui.info(f"Sheet: {item['sheet_name']}")
+                self.ui.info(f"Language: {item['lang']}")
+                self.ui.info(f"Source text: {item['source_text']}")
+                self.ui.info(f"Last attempt: {item['last_translation']}")
+                self.ui.info(f"Issues:")
+                for issue in item['issues']:
+                    self.ui.info(f"  - {issue}")
+                self.ui.info("-" * 40)
+        self.ui.info("=" * 80)
 
     def _detect_missing_translations(self, df: pd.DataFrame, source_lang: str, target_langs: List[str]) -> Dict[str, List[int]]:
         """Detect missing translations in the DataFrame.
@@ -133,8 +252,7 @@ class TranslationManager:
         
         return missing_translations
 
-    async def _process_missing_translations(self, df: pd.DataFrame, missing_translations: Dict[str, List[Dict[str, Any]]],
-                                            use_term_base: bool) -> None:
+    async def _process_missing_translations(self, df: pd.DataFrame, missing_translations: Dict[str, List[Dict[str, Any]]], use_term_base: bool) -> None:
         sheet_name = df.attrs['sheet_name']
         skipped_items = []
         
@@ -151,6 +269,12 @@ class TranslationManager:
                 
                 # Add pending translations to UI
                 for item in batch:
+                    #retry_count = len(item.get('last_issues', []))
+                    #if retry_count > 0:
+                    #    # Add exponential backoff delay for retries
+                    #    delay = self.retry_delay * (2 ** (retry_count - 1))
+                    #    self.ui.info(f"Waiting {delay}s before retry #{retry_count + 1} for '{item['source_text']}'")
+                    #    await asyncio.sleep(delay)
                     self.ui.add_translation_entry(item['source_text'], lang)
                 
                 # Perform translation
@@ -180,9 +304,26 @@ class TranslationManager:
                             self.ui.critical(f"Max retries reached for {lang} item {missing_item['source_text']}. Giving up.")
                             skipped_items.append(missing_item)
                             missing_items.remove(missing_item)
-                        
-                        self.ui.complete_translation(missing_item['source_text'], lang, translation, str(issues))
+                            
+                            # Track failed translation
+                            self.stats['failed_translations'] += 1
+                            failed_item = {
+                                'sheet_name': sheet_name,
+                                'lang': lang,
+                                'source_text': missing_item['source_text'],
+                                'last_translation': translation,
+                                'issues': [str(issue['issues']) for issue in all_issues]
+                            }
+                            self.stats['failed_items'].append(failed_item)
+                            self._log_failed_translation(failed_item)
+                            
+                            self.ui.complete_translation(missing_item['source_text'], lang, translation, str(issues))
+                        else:
+                            # Keep the item in the list for retry, but mark it as in progress
+                            self.ui.complete_translation(missing_item['source_text'], lang, translation, str(issues))
+                            self.ui.add_translation_entry(missing_item['source_text'], lang, "⏳")
                     else:
+                        # Only handle as successful if there are no issues
                         self.sheets_handler.modify_cell_data(
                             sheet_name=sheet_name,
                             row=missing_item['row_idx'],
@@ -191,6 +332,10 @@ class TranslationManager:
                         )
                         missing_items.remove(missing_item)
                         self.ui.complete_translation(missing_item['source_text'], lang, translation)
+                        
+                        # Track successful translation and log it
+                        self.stats['successful_translations'] += 1
+                        self._log_successful_translation(sheet_name, lang, missing_item['source_text'], translation)
                 
                 if len(missing_items) == 0:
                     missing_translations.pop(lang)
@@ -198,6 +343,7 @@ class TranslationManager:
                 
                 # Start new batch
                 self.ui.start_new_batch()
+                self.sheets_handler.save_changes()
             
             if skipped_items:
                 self.ui.warning(f"Skipped {len(skipped_items)} items due to max retries")
@@ -275,11 +421,12 @@ Rules:
 - Keep translations lighthearted and fun, but precise
 - Keep translations concise to fit UI elements
 - Localize all output text, except special terms between markup characters
+- It is ok to be polarizing, don't be neutral - but avoid offensive language
 - Review previous failed translations and avoid making the same mistakes
 
-Additionally:
-- Identify any important unique terms, like character or item names, in the source text that should be added to the term base.
-- Only suggest game-specific terms or terms requiring consistent translation
+Additionally, identify any important unique terms, like character or item names, in the source text that should be added to the term base.
+Term Base Rules:
+- Only suggest game-specific terms or terms requiring consistent translation, like character or item names
 - Don't suggest terms which are common language words or phrases - only suggest terms which are unique to the game.
 - For each suggested term, provide:
   * The term in the source language

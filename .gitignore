@@ -68,3 +68,4 @@ config/*.yaml
 !config/config.yaml.example 
 llm_*_response.json
 llm_*_request.json
+/translation_logs
