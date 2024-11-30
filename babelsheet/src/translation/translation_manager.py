@@ -229,14 +229,6 @@ class TranslationManager:
                         'batch_number': j//self.batch_size + 1
                     }
             
-                    # Update DataFrame if provided
-                    if df is not None and batch_indices is not None:
-                        df.loc[batch_indices[j], target_lang] = translation
-            
-                    # Update term base if this is a term that needs translation
-                    if text in self.term_base_handler.term_base:
-                        self.term_base_handler.update_translations(text, {target_lang: translation})
-            
                     batch_results.append(result)
 
             except (
@@ -280,7 +272,14 @@ class TranslationManager:
         combined_texts = "\n\n".join(texts_with_contexts)
 
         if term_base:
-            combined_texts += "\nTerm Base References:\n" + str(json.dumps(term_base, indent=2))
+            term_base_xml = ["<term_base>"]
+            for term, data in term_base.items():
+                escaped_term = term.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                escaped_translation = data["translation"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                escaped_context = data["context"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                term_base_xml.append(f"<term><source>{escaped_term}</source><translation>{escaped_translation}</translation><context>{escaped_context}</context></term>")
+            term_base_xml.append("</term_base>")
+            combined_texts += "\n\nTerm Base References:\n" + "\n".join(term_base_xml)
             
         return combined_texts
 
@@ -312,7 +311,7 @@ Rules:
 Additionally:
 - Identify any important unique terms, like character or item names, in the source text that should be added to the term base.
 - Only suggest game-specific terms or terms requiring consistent translation
-- But don't suggest terms which are common language words or phrases - only suggest terms which are unique to the game.
+- Don't suggest terms which are common language words or phrases - only suggest terms which are unique to the game.
 - For each suggested term, provide:
   * The term in the source language
   * A suggested translation
@@ -430,7 +429,8 @@ Translate each text maintaining all rules. Return translations and term suggesti
         return results
 
     async def _perform_translation(self, source_texts: List[str], source_lang: str, 
-                                 target_lang: str, contexts: List[str], cells: List[Any],
+                                 target_lang: str, contexts: List[str],
+                                 cells: List[Any],
                                  term_base: Dict[str, Dict[str, Any]] = None
                                  ) -> List[Tuple[str, List[str]]]:
         """Internal method to perform batch translation.

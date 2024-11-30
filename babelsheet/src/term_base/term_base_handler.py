@@ -101,9 +101,9 @@ class TermBaseHandler:
         comment_column_idx = self.sheet_data.attrs['context_column_indexes'][0]
         row[comment_column_idx] = CellData(comment, is_synced=False)
 
+        # Add new row and get its index
+        new_row_idx = len(self.sheet_data) - 1  # Get index before adding
         self.sheets_handler.add_new_row(self.sheet_data, row)
 
-        # Set translations
-        _set_translations(term_idx, translations)
-
-
+        # Set translations with correct index
+        _set_translations(new_row_idx, translations)
