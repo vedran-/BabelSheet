@@ -239,25 +239,21 @@ class QAHandler:
             "required": ["is_valid", "issues"]
         }
         
-        try:
-            response = await self.llm_handler.generate_completion(
-                messages=[
-                    {"role": "system", "content": "You are a professional translation validator."},
-                    {"role": "user", "content": prompt}
-                ],
-                json_schema=validation_schema
-            )
+        response = await self.llm_handler.generate_completion(
+            messages=[
+                {"role": "system", "content": f"You are a professional translation validator for {target_lang} language."},
+                {"role": "user", "content": prompt}
+            ],
+            json_schema=validation_schema
+        )
+        
+        result = self.llm_handler.extract_structured_response(response)
+        
+        if result["is_valid"]:
+            return []
+        
+        return [f"LLM found issue: {issue}" for issue in result["issues"]]
             
-            result = self.llm_handler.extract_structured_response(response)
-            
-            if result["is_valid"]:
-                return []
-            
-            return [f"LLM found issue: {issue}" for issue in result["issues"]]
-            
-        except Exception as e:
-            return [f"LLM validation failed: {str(e)}"]
-    
     def _compile_patterns(self, patterns: List[Dict[str, str]]) -> List[Pattern]:
         """Compile regex patterns for non-translatable terms."""
         if not patterns:

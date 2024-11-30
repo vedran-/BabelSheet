@@ -269,7 +269,7 @@ class TranslationManager:
                 exc.append(escape_xml(key, item))
             # Add issues
             for issue in issues:
-                exc.append(f"<FAILED_TRANSLATION>{escape(issue['translation'])}: {escape(issue['issues'])}</FAILED_TRANSLATION>")
+                exc.append(f"<FAILED_TRANSLATION>'{escape(issue['translation'])}' error: {escape(issue['issues'])}</FAILED_TRANSLATION>")
             expanded_context = "".join(exc)
             texts_with_contexts.append(f"<text id='{i+1}'>{text}</text>\n<context id='{i+1}'>{expanded_context}</context>")
         
@@ -308,6 +308,7 @@ Rules:
 - Keep translations lighthearted and fun
 - Keep translations concise to fit UI elements
 - Localize all output text, except special terms between markup characters
+- Review previous failed translations and avoid making the same mistakes
 
 Additionally:
 - Identify any important unique terms, like character or item names, in the source text that should be added to the term base.
