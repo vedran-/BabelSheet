@@ -64,7 +64,8 @@ class TranslationManager:
         df = self.sheets_handler.get_sheet_data(sheet_name)
         # Detect missing translations
         missing_translations = self.detect_missing_translations(df, source_lang, target_langs)
-        logger.info(f"Found missing translations for {len(missing_translations)} languages: {list(missing_translations.keys())}")
+        if len(missing_translations) > 0:
+            logger.info(f"[{sheet_name}] Found missing translations for {len(missing_translations)} languages: {list(missing_translations.keys())}")
 
         if missing_translations and len(missing_translations) > 0:
             # Process all translations and update the DataFrame
@@ -133,7 +134,8 @@ class TranslationManager:
         
         return missing_translations
 
-    async def _process_missing_translations(self, missing_translations, use_term_base: bool ) -> None:
+    async def _process_missing_translations(self, missing_translations: Dict[str, List[Dict[str, Any]]],
+                                            use_term_base: bool) -> None:
         # First ensure term base is complete for all target languages
         #if use_term_base:
         #    await self.ensure_term_base_translations(target_langs)
@@ -147,9 +149,8 @@ class TranslationManager:
             # Extract texts, contexts, and row indices
             for item in missing_items:
                 texts.append(item['source_text'])
-                contexts.append(item.get('context', ''))
-                if 'row_idx' in item:
-                    cells.append(item['row_idx'])
+                contexts.append(item['context'])
+                cells.append(item['row_idx'])
             
             # Get term base for this language
             term_base = self.term_base_handler.get_terms_for_language(lang) if use_term_base else None
@@ -243,7 +244,7 @@ class TranslationManager:
                 ConnectionError,  # Connection issues
                 json.JSONDecodeError,  # Response parsing errors
                 asyncio.TimeoutError,  # Async timeouts
-                ValueError,
+                #ValueError,
             ) as e:
                 last_error = e
                 retries += 1
@@ -253,7 +254,9 @@ class TranslationManager:
                 logger.warning(f"Translation attempt {retries} failed, retrying in {self.retry_delay} seconds. Error: {e.__class__.__name__}: {str(e)} in {e.__traceback__.tb_frame.f_code.co_filename.split('/')[-1]}:{e.__traceback__.tb_lineno}")
                 await asyncio.sleep(self.retry_delay * retries)  # Exponential backoff
 
-    def _prepare_texts_with_contexts(self, source_texts: List[str], contexts: List[str], term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
+    def _prepare_texts_with_contexts(self, source_texts: List[str], 
+                                     contexts: List[Dict[str, Any]], 
+                                     term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
         """Prepare texts with their contexts for translation.
         
         Args:
@@ -266,7 +269,13 @@ class TranslationManager:
         """
         texts_with_contexts = []
         for i, (text, context) in enumerate(zip(source_texts, contexts)):
-            texts_with_contexts.append(f"Text {i+1}: {text}\nContext {i+1}: {context}")
+            exc = []
+            for key, item in context.items():
+                escaped_key = key.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                escaped_item = str(item).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                exc.append(f"<{escaped_key}>{escaped_item}</{escaped_key}>")
+            expanded_context = "".join(exc)
+            texts_with_contexts.append(f"<text id='{i+1}'>{text}</text>\n<context id='{i+1}'>{expanded_context}</context>")
         
         combined_texts = "\n\n".join(texts_with_contexts)
 
@@ -301,16 +310,17 @@ Rules:
 - Localize all output text, except special terms between markup characters
 
 Additionally:
-- Identify any important unique terms in the source text that should be added to the term base, like character names, item names, etc.
+- Identify any important unique terms, like character or item names, in the source text that should be added to the term base.
+- Only suggest game-specific terms or terms requiring consistent translation
+- But don't suggest terms which are common language words or phrases - only suggest terms which are unique to the game.
 - For each suggested term, provide:
   * The term in the source language
   * A suggested translation
-  * A brief comment explaining its usage/context
-  * Only suggest game-specific terms or terms requiring consistent translation
-  * Don't suggest terms that are already in the term base
-  * Don't suggest special terms that match the non-translatable patterns
+  * A brief comment explaining its usage/context in the source language ({source_lang})
+- Don't suggest terms that are already in the term base
+- Don't suggest special terms that match the non-translatable patterns
 
-Translate each text maintaining all rules. Return translations and term suggestions in a structured format."""
+Translate each text maintaining all rules. Return translations and term suggestions in a structured JSON format."""
 
     def _get_translation_schema(self) -> Dict[str, Any]:
         """Get the schema for translation response validation.

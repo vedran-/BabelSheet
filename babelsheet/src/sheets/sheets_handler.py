@@ -71,6 +71,7 @@ class SheetsHandler:
                 df = pd.DataFrame(values)
 
                 df.attrs['context_column_indexes'] = self.get_column_indexes(df, self.ctx.config['context_columns']['patterns'])
+                df.attrs['sheet_name'] = sheet_name
 
                 self._sheets[sheet_name] = df
                 
@@ -163,9 +164,14 @@ class SheetsHandler:
         """Add a new row to end of the sheet"""
         idx = len(sheet_data.index)
         sheet_data.loc[idx] = row_values
-        self.logger.debug(f"Adding new row: {row_values}")
+        logger.debug(f"Adding new row: {row_values}")
         return idx
 
+
+    def get_cell_value(self, sheet_data: pd.DataFrame, row_idx: int, col_idx: int) -> Any:
+        """Get the value of a cell"""
+        cell = sheet_data.iloc[row_idx][col_idx]
+        return cell.value if cell else None
 
     def get_sheet_names(self) -> List[str]:
         """Get all sheet names"""
@@ -180,14 +186,19 @@ class SheetsHandler:
         """Get all column names from 1st row"""
         return [cell.value.lower() if lower_case else cell.value for cell in sheet_data.iloc[0]]        
 
-    def get_column_indexes(self, sheet_data: pd.DataFrame, column_names: List[str], create_if_missing: bool = False) -> List[int]:
+    def get_column_indexes(self, sheet_data: pd.DataFrame, column_names: List[str], 
+                           create_if_missing: bool = False) -> List[int]:
         """Get the indexes of the context columns"""
-        sheet_column_names = self.get_column_names(sheet_data, lower_case=True)
+        ignore_case = self.ctx.config['context_columns']['ignore_case']
+        sheet_column_names = self.get_column_names(sheet_data, lower_case=ignore_case)
         column_indexes = []
         
         for col_name in column_names:
             try:
-                col_idx = sheet_column_names.index(col_name.lower())
+                if ignore_case:
+                    col_idx = sheet_column_names.index(col_name.lower())
+                else:
+                    col_idx = sheet_column_names.index(col_name)
             except ValueError:
                 if create_if_missing:
                     col_idx = self.add_new_column(sheet_data, col_name)
@@ -197,7 +208,16 @@ class SheetsHandler:
 
         return column_indexes
 
-    def get_row_context(self, sheet_data: pd.DataFrame, row_idx: int) -> List[str]:
-        """Get the context of a row"""
+    def get_row_context(self, sheet_data: pd.DataFrame, row_idx: int) -> Dict[str, Any]:
+        """Get the context of a row as a single dictionary"""
         column_names = self.get_column_names(sheet_data)
-        return [{column_names[col_idx]: sheet_data.iloc[row_idx][col_idx].value} for col_idx in sheet_data.attrs['context_column_indexes']]
+        sheet_name = sheet_data.attrs['sheet_name']
+        context = {}
+        context['sheet_name'] = sheet_name
+        for col_idx in sheet_data.attrs['context_column_indexes']:
+            cell_value = self.get_cell_value(sheet_data, row_idx, col_idx)
+            if cell_value:
+                context[column_names[col_idx]] = cell_value
+
+        return context
+

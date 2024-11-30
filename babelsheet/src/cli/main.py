@@ -210,9 +210,9 @@ async def translate(ctx, target_langs, verbose):
             ctx.source_lang, ctx.target_langs, use_term_base=False)
     
     # Process each sheet
-    sheet_names = ctx.sheets_handler.get_all_sheets()
+    sheet_names = ctx.sheets_handler.get_sheet_names()
     for sheet_name in sheet_names:
-        logger.info(f"\nProcessing sheet: {sheet_name}")
+        logger.debug(f"Processing sheet: {sheet_name}")
         
         # Skip term base sheet if it exists
         if ctx.term_base_handler and sheet_name == ctx.config['term_base']['sheet_name']:
