@@ -1,0 +1,40 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: BabelSheet Module",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "babelsheet",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "LOG_LEVEL": "DEBUG"
+            },
+            "args": [
+                "translate",
+                "--target-langs",
+                "es,fr",
+                "-vv"
+            ]
+        },
+        {
+            "name": "Python: BabelSheet Tests",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "babelsheet/tests/",
+                "-v",
+                "--no-cov"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "LOG_LEVEL": "DEBUG"
+            }
+        }
+    ]
+}
