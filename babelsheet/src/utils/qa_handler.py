@@ -111,17 +111,17 @@ class QAHandler:
         source_caps = re.findall(r'\b[A-Z]{2,}\b', source)
         for word in source_caps:
             if word in source and not any(word in t for t in re.findall(r'\b[A-Z]{2,}\b', translation)):
-                issues.append(f"Capitalization mismatch for term: {word}")
+                issues.append(f"Capitalization mismatch for term: {word} between source ({source}) and translation ({translation})")
         
         # Check newline preservation
         if source.count('\\n') != translation.count('\\n'):
-            issues.append("Newline count mismatch between source and translation")
+            issues.append(f"Newline count mismatch between source ({source}) and translation ({translation})")
             
         # Check ending punctuation
         source_end = re.search(r'[.!?:,]$', source)
         trans_end = re.search(r'[.!?:,]$', translation)
         if bool(source_end) != bool(trans_end):
-            issues.append("Ending punctuation mismatch")
+            issues.append(f"Ending punctuation does not match between source ({source}) and translation ({translation})")
             
         return issues
     
@@ -134,29 +134,29 @@ class QAHandler:
             source_terms = self._extract_non_translatable_terms(source)
             for term in source_terms:
                 if term not in translation:
-                    issues.append(f"Non-translatable term '{term}' must appear exactly as in source")
+                    issues.append(f"Non-translatable term '{term}' must appear exactly as in source ({source})")
                 elif translation.count(term) != source.count(term):
-                    issues.append(f"Non-translatable term '{term}' appears {translation.count(term)} times in translation but {source.count(term)} times in source")
+                    issues.append(f"Non-translatable term '{term}' appears {translation.count(term)} times in translation ({translation}) but {source.count(term)} times in source ({source})")
         
         # Check square brackets
         source_brackets = re.findall(r'\[.*?\]', source)
         trans_brackets = re.findall(r'\[.*?\]', translation)
         if len(source_brackets) != len(trans_brackets):
-            issues.append("Square bracket markup count mismatch")
+            issues.append(f"Square bracket markup count mismatch between source ({source}) and translation ({translation})")
         else:
             for s, t in zip(source_brackets, trans_brackets):
                 if s != t:
-                    issues.append(f"Square bracket content modified: {s} -> {t}")
+                    issues.append(f"Square bracket content modified: {s} -> {t} between source ({source}) and translation ({translation})")
         
         # Check curly braces
         source_braces = re.findall(r'\{.*?\}', source)
         trans_braces = re.findall(r'\{.*?\}', translation)
         if len(source_braces) != len(trans_braces):
-            issues.append("Curly brace markup count mismatch")
+            issues.append(f"Curly brace markup count mismatch between source ({source}) and translation ({translation})")
         else:
             for s, t in zip(source_braces, trans_braces):
                 if s != t:
-                    issues.append(f"Curly brace content modified: {s} -> {t}")
+                    issues.append(f"Curly brace content modified: {s} -> {t} between source ({source}) and translation ({translation})")
                     
         return issues
     

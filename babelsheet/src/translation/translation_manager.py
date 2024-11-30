@@ -176,9 +176,9 @@ class TranslationManager:
                 else:
                     self.sheets_handler.modify_cell_data(
                         sheet_name=sheet_name,
-                        row_idx=batch[batch_idx]['row_idx'],
-                        col_idx=batch[batch_idx]['col_idx'],
-                        new_value=translation
+                        row=batch[batch_idx]['row_idx'],
+                        col=batch[batch_idx]['col_idx'],
+                        value=translation
                     )
                     # This will remove the item at batch_idx from missing_items list
                     # But since we're iterating over the list in reverse order, we should use del instead
@@ -255,7 +255,7 @@ class TranslationManager:
         """
 
         def escape(text: str) -> str:
-            return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
         def escape_xml(key: str, item: Any) -> str:
             escaped_key = escape(key)
