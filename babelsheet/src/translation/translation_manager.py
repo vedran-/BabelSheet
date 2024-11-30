@@ -270,7 +270,7 @@ Rules:
 - Don't translate special terms which match the following patterns: {str(self.config['qa']['non_translatable_patterns'])}
 - Keep appropriate format (uppercase/lowercase)
 - Replace newlines with \\n
-- Keep translations lighthearted and fun
+- Keep translations lighthearted and fun, but precise
 - Keep translations concise to fit UI elements
 - Localize all output text, except special terms between markup characters
 - Review previous failed translations and avoid making the same mistakes
@@ -305,13 +305,6 @@ Translate each text maintaining all rules. Return translations and term suggesti
                             "translation": {
                                 "type": "string",
                                 "description": "The translated text"
-                            },
-                            "notes": {
-                                "type": "array",
-                                "items": {
-                                    "type": "string"
-                                },
-                                "description": "Any translator notes or warnings"
                             }
                         },
                         "required": ["translation"]
@@ -433,7 +426,6 @@ Translate each text maintaining all rules. Return translations and term suggesti
         
         for i, (translation_dict, syntax_issues) in enumerate(zip(translations, syntax_results)):
             translated_text = translation_dict["translation"]
-            translator_notes = translation_dict.get("notes", [])
             
             # If there are no syntax issues, add to LLM validation batch
             if len(syntax_issues) == 0:
@@ -446,12 +438,12 @@ Translate each text maintaining all rules. Return translations and term suggesti
                 llm_validation_indexes.append(i)
             
             # Store initial results with syntax issues
-            results.append((translated_text, translator_notes + syntax_issues))
+            results.append((translated_text, syntax_issues))
         
         # Perform batch LLM validation if needed
         if llm_validation_items:
             llm_results = await self.qa_handler.validate_with_llm_batch(llm_validation_items, target_lang)
-            
+
             # Update results with LLM validation issues
             for batch_idx, result_idx in enumerate(llm_validation_indexes):
                 translated_text, current_issues = results[result_idx]

@@ -36,10 +36,9 @@ class UIManager:
     def _create_translation_table(self) -> Table:
         """Create the translation progress table."""
         table = Table(box=box.ROUNDED, expand=True, show_footer=False)
-        table.add_column("Time", style="cyan")
+        table.add_column("Time", style="cyan", width=8)
         table.add_column("Source Text")
         table.add_column("Language", style="magenta")
-        table.add_column("Status", style="bold")
         table.add_column("Translation", overflow="fold")
         
         # Combine current batch and history, but reverse the order
@@ -50,20 +49,59 @@ class UIManager:
         for entry in reversed(all_entries):
             row_style = "blue" if entry.get("type") == "term_base" else None
             
-            # Truncate translation text if needed
+            # Extract just the icon from status and combine with source text
+            status = entry["status"]
+            if isinstance(status, str):
+                icon = status.split()[0]  # Get just the emoji
+            else:
+                icon = "⏳"  # Default icon
+                
+            source_with_status = Text()
+            source_with_status.append(icon + " ")  # Add icon with a space
+            source_with_status.append(entry["source"])
+            
+            # Handle translation text
             translation = entry["translation"]
-            lines = translation.splitlines()
-            if len(lines) > 4:
-                # Keep first 4 lines and add ellipsis
-                translation = "\n".join(lines[:4]) + "\n..."
-            elif len(translation) > 200:  # Also limit by character count
-                translation = translation[:197] + "..."
+            if isinstance(translation, str):
+                # For backward compatibility with history entries
+                lines = translation.splitlines()
+                if len(lines) > 4:
+                    # Keep first 4 lines and add ellipsis
+                    translation = "\n".join(lines[:4]) + "\n..."
+                elif len(translation) > 200:  # Also limit by character count
+                    translation = translation[:197] + "..."
+            elif isinstance(translation, Text):
+                # For new entries with colored text
+                if len(translation.plain) > 200:
+                    # Create new Text object with truncated content
+                    truncated = Text()
+                    current_length = 0
+                    
+                    # Preserve all segments with their styles
+                    for segment in translation.split("\n"):
+                        # If this is not the first segment, add newline
+                        if current_length > 0:
+                            truncated.append("\n")
+                            current_length += 1
+                            
+                        # If adding this segment would exceed the limit
+                        if current_length + len(segment.plain) > 197:
+                            remaining_space = 197 - current_length
+                            if remaining_space > 3:  # Only add partial segment if we have space
+                                truncated.append(Text(segment.plain[:remaining_space], style=segment.style))
+                            truncated.append("...", style="dim")
+                            break
+                            
+                        # Add the full segment with its original style
+                        truncated.append(segment)
+                        current_length += len(segment.plain)
+                    
+                    translation = truncated
             
             table.add_row(
                 entry["time"],
-                entry["source"],
+                source_with_status,
                 entry["lang"],
-                entry["status"],
                 translation,
                 style=row_style
             )
@@ -102,20 +140,40 @@ class UIManager:
             self.live.stop()
             self.live = None
             
-    def add_translation_entry(self, source: str, lang: str, status: str = "⏳ Pending", 
+    def add_translation_entry(self, source: str, lang: str, status: str = "⏳", 
                             translation: str = "", error: str = "", entry_type: str = "translation"):
         """Add a new translation entry.
         
         Args:
             source: Source text
             lang: Target language
-            status: Status emoji and text
-            translation: Translated text
+            status: Status emoji
+            translation: Translated text or Text object
             error: Error message if any
             entry_type: Type of entry ("translation" or "term_base")
         """
         time = datetime.now().strftime("%H:%M:%S")
-        translation_text = f"{translation} {error}" if error else translation
+        
+        # Create colored text for translation and error
+        translation_text = Text()
+        if translation:
+            # Handle both string and Text objects
+            if isinstance(translation, Text):
+                translation_text = translation  # Use the Text object as is
+            else:
+                # Color only the translation text based on status
+                color = "yellow"  # Default color for in-progress
+                if status.startswith("✓"):  # Done
+                    color = "green"
+                elif status.startswith("❌"):  # Failed
+                    color = "red"
+                translation_text.append(translation, style=color)
+            
+        # Add error or comments in default color
+        if error:
+            if translation:
+                translation_text.append("\n")
+            translation_text.append(error)  # No style means default white color
         
         entry = {
             "time": time,
@@ -123,7 +181,7 @@ class UIManager:
             "source": source,
             "lang": lang,
             "status": status,
-            "translation": translation_text.strip()
+            "translation": translation_text
         }
         
         # If entry is in current batch, update it
@@ -139,7 +197,7 @@ class UIManager:
         
     def complete_translation(self, source: str, lang: str, translation: str, error: str = ""):
         """Mark a translation as complete."""
-        status = "❌ Failed" if error else "✓ Done"
+        status = "❌" if error else "✓"
         self.add_translation_entry(source, lang, status, translation, error)
         
     def start_new_batch(self):
@@ -183,7 +241,35 @@ class UIManager:
         
     def add_term_base_entry(self, term: str, lang: str, translation: str = "", comment: str = ""):
         """Add a term base entry with special highlighting."""
-        status = "📖 Term Base"
+        status = "📖"
+        
+        # Create text with colored translation and default color comment
+        translation_text = Text()
+        if translation:
+            translation_text.append(translation, style="blue")  # Term base entries in blue
+            
         if comment:
-            translation = f"{translation} (Comment: {comment})"
-        self.add_translation_entry(term, lang, status, translation, entry_type="term_base") 
+            if translation:
+                translation_text.append(" ")
+            translation_text.append("(Comment: " + comment + ")")  # Comment in default color
+                
+        # Pass the Text object directly to the entry
+        entry = {
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "type": "term_base",
+            "source": term,
+            "lang": lang,
+            "status": status,
+            "translation": translation_text
+        }
+        
+        # If entry is in current batch, update it
+        for i, batch_entry in enumerate(self._current_batch):
+            if batch_entry["source"] == term and batch_entry["lang"] == lang:
+                self._current_batch[i] = entry
+                self._update_display()
+                return
+                
+        # If entry not in current batch, add it
+        self._current_batch.append(entry)
+        self._update_display()
