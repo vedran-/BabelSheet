@@ -24,10 +24,18 @@ class UIManager:
         self.live: Optional[Live] = None
         self._current_batch: List[Dict] = []
         
+        # Add overall statistics tracking
+        self.overall_stats = {
+            'total_attempts': 0,
+            'successful': 0,
+            'failed': 0
+        }
+        
     def _create_layout(self) -> Layout:
         """Create the main layout with translations at top and status at bottom."""
         layout = Layout()
         layout.split_column(
+            Layout(name="overall_stats", ratio=1, minimum_size=4),
             Layout(name="translations", ratio=3),
             Layout(name="status", ratio=1, minimum_size=8)
         )
@@ -120,10 +128,39 @@ class UIManager:
             
         return Panel(status_text, title="📋 Status Messages", border_style="yellow")
         
+    def _create_overall_stats_panel(self) -> Panel:
+        """Create the overall statistics panel."""
+        total = self.overall_stats['total_attempts']
+        if total > 0:
+            success_rate = (self.overall_stats['successful'] / total) * 100
+            fail_rate = (self.overall_stats['failed'] / total) * 100
+        else:
+            success_rate = fail_rate = 0.0
+            
+        stats_table = Table(box=None, expand=True, show_header=False)
+        stats_table.add_column("Label", style="cyan")
+        stats_table.add_column("Value", style="white")
+        
+        stats_table.add_row(
+            "Total Translation Attempts:",
+            str(total)
+        )
+        stats_table.add_row(
+            "Successful Translations:",
+            f"{self.overall_stats['successful']} ({success_rate:.1f}%)"
+        )
+        stats_table.add_row(
+            "Failed Translations:",
+            f"{self.overall_stats['failed']} ({fail_rate:.1f}%)"
+        )
+        
+        return Panel(stats_table, title="📊 Overall Translation Statistics", border_style="green")
+        
     def _update_display(self):
         """Update the live display."""
         if self.live:
             layout = self._create_layout()
+            layout["overall_stats"].update(self._create_overall_stats_panel())
             layout["translations"].update(self._create_translation_table())
             layout["status"].update(self._create_status_panel())
             self.live.update(layout)
@@ -198,6 +235,14 @@ class UIManager:
     def complete_translation(self, source: str, lang: str, translation: str, error: str = ""):
         """Mark a translation as complete."""
         status = "❌" if error else "✓"
+        
+        # Update overall statistics
+        self.overall_stats['total_attempts'] += 1
+        if error:
+            self.overall_stats['failed'] += 1
+        else:
+            self.overall_stats['successful'] += 1
+            
         self.add_translation_entry(source, lang, status, translation, error)
         
     def start_new_batch(self):
@@ -287,6 +332,29 @@ class SimpleUIManager:
         self.logger = logging.getLogger(__name__)
         self.console = Console()  # For colored output
         
+        # Add overall statistics tracking
+        self.overall_stats = {
+            'total_attempts': 0,
+            'successful': 0,
+            'failed': 0
+        }
+        
+    def _print_overall_stats(self):
+        """Print overall statistics."""
+        total = self.overall_stats['total_attempts']
+        if total > 0:
+            success_rate = (self.overall_stats['successful'] / total) * 100
+            fail_rate = (self.overall_stats['failed'] / total) * 100
+        else:
+            success_rate = fail_rate = 0.0
+            
+        self.console.print("\n📊 Overall Translation Statistics", style="green bold")
+        self.console.print("─" * 40, style="dim")
+        self.console.print(f"Total Translation Attempts: {total}", style="cyan")
+        self.console.print(f"Successful Translations: {self.overall_stats['successful']} ({success_rate:.1f}%)", style="cyan")
+        self.console.print(f"Failed Translations: {self.overall_stats['failed']} ({fail_rate:.1f}%)", style="cyan")
+        self.console.print("─" * 40, style="dim")
+        
     def start(self):
         """Start logging - no-op in simple mode."""
         pass
@@ -346,10 +414,19 @@ class SimpleUIManager:
     def complete_translation(self, source: str, lang: str, translation: str, error: str = ""):
         """Log a completed translation."""
         status = "❌" if error else "✓"
+        
+        # Update overall statistics
+        self.overall_stats['total_attempts'] += 1
+        if error:
+            self.overall_stats['failed'] += 1
+        else:
+            self.overall_stats['successful'] += 1
+            
         self.add_translation_entry(source, lang, status, translation, error)
         
     def start_new_batch(self):
-        """Start a new batch - prints a separator in simple mode."""
+        """Start a new batch - prints a separator and overall stats in simple mode."""
+        self._print_overall_stats()
         self.console.print("─" * 80, style="dim")
         
     def add_status(self, message: str, level: str = "info"):
