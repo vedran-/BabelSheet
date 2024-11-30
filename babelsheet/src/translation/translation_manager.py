@@ -186,55 +186,6 @@ class TranslationManager:
 
 
 
-    async def _perform_translation_with_retry(self, batch_texts: List[str], batch_contexts: List[str], 
-                                              batch_cells: List[Any], target_lang: str,
-                                              term_base: Dict[str, Dict[str, Any]] = None):
-        """Perform translation for a batch of texts with retry logic."""
-        retries = 0
-        last_error = None
-        
-        while retries < self.max_retries:
-            try:
-                # Process the entire batch at once
-                batch_translations = await self._perform_translation(
-                    source_texts=batch_texts,
-                    source_lang=self.config['languages']['source'],
-                    target_lang=target_lang,
-                    contexts=batch_contexts,
-                    cells=batch_cells,
-                    term_base=term_base
-                )
-
-                # Process each translation in the batch
-                batch_results = []
-                for j, (text, context, (translation, issues)) in enumerate(zip(batch_texts, batch_contexts, batch_translations)):
-                    result = {
-                        'source_text': text,
-                        'translated_text': translation,
-                        'context': context,
-                        'issues': issues,
-                        'batch_number': j//self.batch_size + 1
-                    }
-            
-                    batch_results.append(result)
-                
-                return
-
-            except (
-                TimeoutError,  # Network timeouts
-                ConnectionError,  # Connection issues
-                json.JSONDecodeError,  # Response parsing errors
-                asyncio.TimeoutError,  # Async timeouts
-                #ValueError,
-            ) as e:
-                last_error = e
-                retries += 1
-                if retries == self.max_retries:
-                    raise
-                logger.warning(f"Translation attempt {retries} failed, retrying in {self.retry_delay} seconds. Error: {e.__class__.__name__}: {str(e)}")
-                logger.warning(f"Translation attempt {retries} failed, retrying in {self.retry_delay} seconds. Error: {e.__class__.__name__}: {str(e)} in {e.__traceback__.tb_frame.f_code.co_filename.split('/')[-1]}:{e.__traceback__.tb_lineno}")
-                await asyncio.sleep(self.retry_delay * retries)  # Exponential backoff
-
 
 
     def _prepare_texts_with_contexts(self, source_texts: List[str], 
@@ -429,7 +380,8 @@ Translate each text maintaining all rules. Return translations and term suggesti
             self.sheets_handler.save_changes()
 
     async def _validate_translations(self, source_texts: List[str], translations: List[Dict[str, Any]], 
-                                   term_base: Optional[Dict[str, Dict[str, Any]]], target_lang: str) -> List[Tuple[str, List[str]]]:
+                                   contexts: List[str], term_base: Optional[Dict[str, Dict[str, Any]]],
+                                   target_lang: str) -> List[Tuple[str, List[str]]]:
         """Validate translations and combine with translator notes.
         
         Args:
@@ -441,25 +393,54 @@ Translate each text maintaining all rules. Return translations and term suggesti
         Returns:
             List of tuples containing (translated_text, issues)
         """
-        validation_tasks = []
+        results = []
+        syntax_validation_tasks = []
+        
+        # First validate syntax for all translations
         for i, source_text in enumerate(source_texts):
             translated_text = translations[i]["translation"]
-            task = self.qa_handler.validate_translation(
+            context = contexts[i]
+            task = self.qa_handler.validate_translation_syntax(
                 source_text=source_text,
                 translated_text=translated_text,
+                context=context,
                 term_base=term_base,
-                skip_llm_on_issues=False,
                 target_lang=target_lang
             )
-            validation_tasks.append(task)
+            syntax_validation_tasks.append(task)
+            
+        # Wait for all syntax validations to complete
+        syntax_results = await asyncio.gather(*syntax_validation_tasks)
         
-        validation_results = await asyncio.gather(*validation_tasks)
+        # Prepare items for LLM validation
+        llm_validation_items = []
+        llm_validation_indexes = []
         
-        results = []
-        for i, (translation_result, validation_issues) in enumerate(zip(translations, validation_results)):
-            translated_text = translation_result["translation"]
-            translator_notes = translation_result.get("notes", [])
-            results.append((translated_text, translator_notes + validation_issues))
+        for i, (translation_dict, syntax_issues) in enumerate(zip(translations, syntax_results)):
+            translated_text = translation_dict["translation"]
+            translator_notes = translation_dict.get("notes", [])
+            
+            # If there are no syntax issues, add to LLM validation batch
+            if len(syntax_issues) == 0:
+                llm_validation_items.append({
+                    'source_text': source_texts[i],
+                    'translated_text': translated_text,
+                    'context': contexts[i]
+                })
+                llm_validation_indexes.append(i)
+            
+            # Store initial results with syntax issues
+            results.append((translated_text, translator_notes + syntax_issues))
+        
+        # Perform batch LLM validation if needed
+        if llm_validation_items:
+            llm_results = await self.qa_handler.validate_with_llm_batch(llm_validation_items, target_lang)
+            
+            # Update results with LLM validation issues
+            for batch_idx, result_idx in enumerate(llm_validation_indexes):
+                translated_text, current_issues = results[result_idx]
+                llm_issues = llm_results[batch_idx]
+                results[result_idx] = (translated_text, current_issues + llm_issues)
         
         return results
 
@@ -497,4 +478,9 @@ Translate each text maintaining all rules. Return translations and term suggesti
         await self._handle_term_suggestions(term_suggestions, target_lang)
         
         # Validate translations
-        return await self._validate_translations(source_texts, translations, term_base, target_lang)
+        return await self._validate_translations(
+            source_texts=source_texts,
+            translations=translations,
+            contexts=contexts,
+            term_base=term_base,
+            target_lang=target_lang)

@@ -153,6 +153,10 @@ class LLMHandler:
                 if json_block_end_idx != -1:
                     content = content[json_block_start_idx + len("```json"):json_block_end_idx]
 
+            # Try to extract JSON from content if it starts with '{'
+            if content.startswith('{'):
+                content = content[:content.rfind('}') + 1]
+
             return json.loads(content)
         except (KeyError, IndexError, json.JSONDecodeError) as e:
             raise Exception(f"Failed to extract structured response: {e}")
