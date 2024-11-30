@@ -141,6 +141,7 @@ class TranslationManager:
         #if use_term_base:
         #    await self.ensure_term_base_translations(target_langs)
         sheet_name = df.attrs['sheet_name']
+        skipped_items = []
         
         while len(missing_translations) > 0:
             lang, missing_items = next(iter(missing_translations.items()))
@@ -157,7 +158,7 @@ class TranslationManager:
                 term_base=None
             )
 
-            for batch_idx, (missing_item, (translation, issues)) in enumerate(zip(batch, batch_translations)):
+            for idx, (missing_item, (translation, issues)) in enumerate(zip(batch, batch_translations)):
                 if issues and len(issues) > 0:
                     logger.warning(f"[{sheet_name}] Translation '{translation}' has issues for {lang}: {issues}")
 
@@ -170,20 +171,18 @@ class TranslationManager:
 
                     if len(all_issues) >= self.max_retries:
                         logger.critical(f"[{sheet_name}] Max retries reached for {lang} item {missing_item['source_text']}. Giving up.")
-                        del missing_items[batch_idx]
-                        continue
+                        skipped_items.append(missing_item)
+                        missing_items.remove(missing_item)
 
                 else:
                     self.sheets_handler.modify_cell_data(
                         sheet_name=sheet_name,
-                        row=batch[batch_idx]['row_idx'],
-                        col=batch[batch_idx]['col_idx'],
+                        row=missing_item['row_idx'],
+                        col=missing_item['col_idx'],
                         value=translation
                     )
-                    # This will remove the item at batch_idx from missing_items list
-                    # But since we're iterating over the list in reverse order, we should use del instead
-                    del missing_items[batch_idx]
-
+                    # We successfully translated this item, remove it from missing_translations
+                    missing_items.remove(missing_item)
 
 
 
