@@ -5,20 +5,16 @@ import json
 from ..utils.qa_handler import QAHandler
 from ..term_base.term_base_handler import TermBaseHandler
 from ..sheets.sheets_handler import SheetsHandler, CellData
+from ..utils.ui_manager import UIManager
 import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
+ui = UIManager()
 
 class TranslationManager:
     def __init__(self, config: Dict, sheets_handler: SheetsHandler, term_base_handler: TermBaseHandler):
-        """Initialize Translation Manager.
-        
-        Args:
-            config: Configuration dictionary containing all necessary settings
-            sheets_handler: Pre-initialized SheetsHandler
-            term_base_handler: Pre-initialized TermBaseHandler
-        """
+        """Initialize Translation Manager."""
         self.config = config
         self.logger = logging.getLogger(__name__)
         llm_config = config.get('llm', {})
@@ -137,59 +133,74 @@ class TranslationManager:
 
     async def _process_missing_translations(self, df: pd.DataFrame, missing_translations: Dict[str, List[Dict[str, Any]]],
                                             use_term_base: bool) -> None:
-        # First ensure term base is complete for all target languages
-        #if use_term_base:
-        #    await self.ensure_term_base_translations(target_langs)
         sheet_name = df.attrs['sheet_name']
         skipped_items = []
         
-        while len(missing_translations) > 0:
-            lang, missing_items = next(iter(missing_translations.items()))
-            batch = missing_items[:self.batch_size]
-
-            # Perform translation
-            # TODO: Create context for each item in batch at runtime
-            contexts = [self.sheets_handler.get_row_context(df, item['row_idx']) for item in batch]
-
-            batch_translations = await self._perform_translation(
-                source_texts=[item['source_text'] for item in batch],
-                source_lang=self.config['languages']['source'],
-                target_lang=lang,
-                contexts=contexts,
-                issues=[item.get('last_issues', []) for item in batch],
-                use_term_base=use_term_base
-            )
-
-            for idx, (missing_item, (translation, issues)) in enumerate(zip(batch, batch_translations)):
-                if issues and len(issues) > 0:
-                    logger.warning(f"[{sheet_name}] Translation '{translation}' has issues for {lang}: {issues}")
-
-                    # Add translation and issues to the last_issues list
-                    all_issues = missing_item.get('last_issues', []) + [{
-                        'translation': translation,
-                        'issues': issues,
-                    }]
-                    missing_item['last_issues'] = all_issues
-
-                    if len(all_issues) >= self.max_retries:
-                        logger.critical(f"[{sheet_name}] Max retries reached for {lang} item {missing_item['source_text']}. Giving up.")
-                        skipped_items.append(missing_item)
+        total_items = sum(len(items) for items in missing_translations.values())
+        processed_items = 0
+        
+        ui.start()
+        ui.info(f"Starting batch translation for {len(missing_translations)} languages ({total_items} items total)")
+        
+        try:
+            while len(missing_translations) > 0:
+                lang, missing_items = next(iter(missing_translations.items()))
+                batch = missing_items[:self.batch_size]
+                
+                # Add pending translations to UI
+                for item in batch:
+                    ui.add_translation_entry(item['source_text'], lang)
+                
+                # Perform translation
+                contexts = [self.sheets_handler.get_row_context(df, item['row_idx']) for item in batch]
+                
+                batch_translations = await self._perform_translation(
+                    source_texts=[item['source_text'] for item in batch],
+                    source_lang=self.config['languages']['source'],
+                    target_lang=lang,
+                    contexts=contexts,
+                    issues=[item.get('last_issues', []) for item in batch],
+                    use_term_base=use_term_base
+                )
+                
+                for idx, (missing_item, (translation, issues)) in enumerate(zip(batch, batch_translations)):
+                    processed_items += 1
+                    
+                    if issues:
+                        ui.warning(f"Translation '{translation}' has issues for {lang}: {issues}")
+                        all_issues = missing_item.get('last_issues', []) + [{
+                            'translation': translation,
+                            'issues': issues,
+                        }]
+                        missing_item['last_issues'] = all_issues
+                        
+                        if len(all_issues) >= self.max_retries:
+                            ui.critical(f"Max retries reached for {lang} item {missing_item['source_text']}. Giving up.")
+                            skipped_items.append(missing_item)
+                            missing_items.remove(missing_item)
+                        
+                        ui.complete_translation(missing_item['source_text'], lang, translation, str(issues))
+                    else:
+                        self.sheets_handler.modify_cell_data(
+                            sheet_name=sheet_name,
+                            row=missing_item['row_idx'],
+                            col=missing_item['col_idx'],
+                            value=translation
+                        )
                         missing_items.remove(missing_item)
-
-                else:
-                    self.sheets_handler.modify_cell_data(
-                        sheet_name=sheet_name,
-                        row=missing_item['row_idx'],
-                        col=missing_item['col_idx'],
-                        value=translation
-                    )
-                    # We successfully translated this item, remove it from missing_translations
-                    missing_items.remove(missing_item)
-
+                        ui.complete_translation(missing_item['source_text'], lang, translation)
+                
                 if len(missing_items) == 0:
                     missing_translations.pop(lang)
-
-
+                    ui.info(f"Completed all translations for {lang}")
+                
+                # Start new batch
+                ui.start_new_batch()
+            
+            if skipped_items:
+                ui.warning(f"Skipped {len(skipped_items)} items due to max retries")
+        finally:
+            ui.stop()
 
     def _prepare_texts_with_contexts(self, source_texts: List[str], 
                                      contexts: List[Dict[str, Any]], 
@@ -379,7 +390,7 @@ Translate each text maintaining all rules. Return translations and term suggesti
                     comment=term["comment"],
                     translations={target_lang: term["suggested_translation"]}
                 )
-            self.logger.info(f"Added {len(term_suggestions)} new terms to the term base")
+            self.logger.info(f"[TERM_BASE] Added {len(term_suggestions)} new terms to the term base")
             self.sheets_handler.save_changes()
 
     async def _validate_translations(self, source_texts: List[str], translations: List[Dict[str, Any]], 

@@ -86,7 +86,7 @@ class SheetsHandler:
         if not self.current_spreadsheet_id:
             raise ValueError("No spreadsheet loaded")
 
-        logger.info("Saving unsynced changes to Google Sheets")
+        logger.debug("Saving unsynced changes to Google Sheets")
 
         for sheet_name, sheet_data in self._sheets.items():
             updates = self.get_unsynced_cells(sheet_data)
@@ -94,7 +94,7 @@ class SheetsHandler:
                 logger.debug(f"No changes to sync for sheet: {sheet_name}")
                 continue
                 
-            logger.info(f"Syncing {len(updates)} changes in sheet `{sheet_name}`: {updates}")
+            logger.debug(f"Syncing {len(updates)} changes in sheet `{sheet_name}`: {updates}")
 
             # Convert to batch request format
             batch_data = [
@@ -121,9 +121,9 @@ class SheetsHandler:
                     for cell_ref, cell in updates.items():
                         cell.is_synced = True
 
-                    logger.info(f"Successfully synced {result['totalUpdatedCells']} cells in {sheet_name}")
+                    logger.info(f"[SYNC] Successfully synced {result['totalUpdatedCells']} cells in {sheet_name}")
                 else:
-                    logger.critical(f"Update completed but no cell count returned for {sheet_name}")
+                    logger.critical(f"[SYNC] Update completed but no cell count returned for {sheet_name}")
                     
             except Exception as e:
                 logger.error(f"Error syncing changes for sheet {sheet_name}: {str(e)}")

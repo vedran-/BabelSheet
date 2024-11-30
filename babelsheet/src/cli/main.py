@@ -43,7 +43,7 @@ def validate_config(config):
             'api_url': str,
             'temperature': (int, float),
             'batch_size': (int, type(None)),  # Optional
-            'batch_delay': (int, float, type(None)),  # Optional
+            #'batch_delay': (int, float, type(None)),  # Optional
             'max_retries': (int, type(None)),  # Optional
             'retry_delay': (int, float, type(None))  # Optional
         },
@@ -208,7 +208,9 @@ async def translate(ctx, target_langs, verbose):
         logger.debug("Ensuring term base translations are up to date...")
         await translation_manager.ensure_sheet_translations(ctx.term_base_handler.sheet_name, 
             ctx.source_lang, ctx.target_langs, use_term_base=False)
-    
+        translation_manager.llm_handler.print_token_usage()
+
+
     # Process each sheet
     sheet_names = ctx.sheets_handler.get_sheet_names()
     for sheet_name in sheet_names:
@@ -223,9 +225,7 @@ async def translate(ctx, target_langs, verbose):
             ctx.source_lang, ctx.target_langs, use_term_base=True)
 
         logger.debug(f"Completed processing sheet: {sheet_name}")
-    
-    # Print token usage statistics at the end
-    translation_manager.llm_handler.print_token_usage()
+        translation_manager.llm_handler.print_token_usage()
         
 
 @cli.command()

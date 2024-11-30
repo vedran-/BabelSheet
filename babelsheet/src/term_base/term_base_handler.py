@@ -1,18 +1,15 @@
 from typing import Dict, Optional, Any
 import pandas as pd
 from ..sheets.sheets_handler import SheetsHandler, CellData
+from ..utils.ui_manager import UIManager
 import logging
 
 logger = logging.getLogger(__name__)
+ui = UIManager()
 
 class TermBaseHandler:
     def __init__(self, ctx):
-        """Initialize Term Base Handler.
-        
-        Args:
-            sheets_handler: Google Sheets handler instance
-            ctx: Context object
-        """
+        """Initialize Term Base Handler."""
         self.ctx = ctx
         self.sheets_handler = ctx.sheets_handler
         self.sheet_name = ctx.config['term_base']['sheet_name']
@@ -21,26 +18,18 @@ class TermBaseHandler:
         self.load_term_base()
         
     def load_term_base(self) -> None:
-        """Load the term base from the Google Sheet.
-        
-        The term base is stored in a sheet with the following columns:
-        - EN TERM: Source term in English
-        - COMMENT: Optional comment about the term
-        - Language codes: Direct language codes (e.g., 'es' for Spanish)
-        
-        Raises:
-            ValueError: If sheet access fails or required columns are missing
-        """
-        self.logger.debug(f"Loading term base from sheet: {self.sheet_name}")
+        """Load the term base from the Google Sheet."""
+        ui.info(f"Loading term base from sheet: {self.sheet_name}")
         self.sheet_data = self.sheets_handler.get_sheet_data(self.sheet_name)
 
         # Find the index of the term column
         self.term_column_index = self.sheets_handler.get_column_indexes(self.sheet_data, [self.term_column_name])[0]
         if self.term_column_index == -1:
+            ui.critical(f"Required column '{self.term_column_name}' not found in term base sheet")
             raise ValueError(f"Required column '{self.term_column_name}' not found in term base sheet")
 
         # Find the indexes of the context columns
-        self.logger.info(f"Successfully loaded Term Base from sheet '{self.sheet_name}' ({len(self.sheet_data.iloc[:, self.term_column_index])} terms)")
+        ui.info(f"Successfully loaded Term Base from sheet '{self.sheet_name}' ({len(self.sheet_data.iloc[:, self.term_column_index])} terms)")
 
     def get_terms_for_language(self, lang: str) -> Dict[str, Dict[str, Any]]:
         """Get all terms for a specific language."""
@@ -58,7 +47,7 @@ class TermBaseHandler:
 
             translation = row[lang_column_index].value
             if pd.isna(translation):
-                self.logger.critical(f"Language `{lang}`: term not found: `{term}`")
+                ui.critical(f"Language `{lang}`: term not found: `{term}`")
                 continue
 
             combined_context = []
@@ -85,13 +74,14 @@ class TermBaseHandler:
                 column_idx = self.sheets_handler.get_column_indexes(self.sheet_data, [lang], create_if_missing=True)[0]
                 current_cell = self.sheet_data.iloc[term_idx + 1, column_idx]
                 if current_cell is not None and not current_cell.is_empty():
-                    self.logger.critical(f"Translation for language `{lang}` already exists for term `{term}` - ignoring")
+                    ui.critical(f"Translation for language `{lang}` already exists for term `{term}` - ignoring. Old value: `{current_cell.value}`, new value: `{translation}`")
                     continue
 
                 self.sheets_handler.modify_cell_data(self.sheet_name, term_idx + 1, column_idx, translation)
+                ui.info(f"Added translation for term '{term}' in {lang}: '{translation}'")
 
         if term_idx is not None:
-            self.logger.warn(f"Term `{term}` already exists in term base")
+            ui.warning(f"Term '{term}' already exists in term base")
             _set_translations(term_idx, translations)
             return
 
@@ -104,6 +94,8 @@ class TermBaseHandler:
         # Set comment
         comment_column_idx = self.sheet_data.attrs['context_column_indexes'][0]
         row[comment_column_idx] = CellData(comment, is_synced=False)
+
+        ui.info(f"Adding new term: '{term}' with comment: '{comment}'")
 
         # Add new row and get its index
         new_row_idx = len(self.sheet_data) - 1  # Get index before adding

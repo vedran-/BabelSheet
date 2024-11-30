@@ -44,10 +44,7 @@ class LLMHandler:
     def print_token_usage(cls) -> None:
         """Print the total token usage statistics."""
         usage = cls.get_token_usage()
-        print("\nToken Usage Statistics:")
-        print(f"Prompt Tokens:     {usage['prompt_tokens']:,}")
-        print(f"Completion Tokens: {usage['completion_tokens']:,}")
-        print(f"Total Tokens:      {usage['total_tokens']:,}")
+        print(f">>> Token Usage: {usage['prompt_tokens']} (prompt) + {usage['completion_tokens']} (completion) = {usage['total_tokens']} (total)")
 
     def dump_json_to_file(self, data: Dict[str, Any], filename: str) -> None:
         json_str = json.dumps(data, indent=2, ensure_ascii=False)
@@ -153,10 +150,12 @@ class LLMHandler:
                 if json_block_end_idx != -1:
                     content = content[json_block_start_idx + len("```json"):json_block_end_idx]
 
+            content = content.strip()
+
             # Try to extract JSON from content if it starts with '{'
             if content.startswith('{'):
                 content = content[:content.rfind('}') + 1]
 
             return json.loads(content)
         except (KeyError, IndexError, json.JSONDecodeError) as e:
-            raise Exception(f"Failed to extract structured response: {e}")
+            raise ValueError(f"Failed to extract structured response: {e}")
