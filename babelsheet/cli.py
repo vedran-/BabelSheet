@@ -6,7 +6,6 @@ def main():
     parser.add_argument('command', choices=['translate', 'init'], help='Command to execute')
     parser.add_argument('--sheet-id', help='Google Sheet ID to process')
     parser.add_argument('--target-langs', help='Comma-separated list of target languages')
-    parser.add_argument('--force', action='store_true', help='Add missing language columns without confirmation')
     parser.add_argument('--dry-run', action='store_true', help='Show what would be done without making changes')
     
     args = parser.parse_args()

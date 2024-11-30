@@ -28,17 +28,16 @@ class QAHandler:
             self.patterns = None
             self.logger.debug("No non-translatable patterns configured")
         
-    async def validate_translation(self, source_text: str, translated_text: str,
-                                 term_base: Optional[Dict[str, Dict[str, Any]]] = None,
-                                 skip_llm_on_issues: bool = False,
+    async def validate_translation_syntax(self, source_text: str, translated_text: str,
+                                 context: str, term_base: Optional[Dict[str, Dict[str, Any]]] = None,
                                  target_lang: str = None) -> List[str]:
         """Validate translation quality.
         
         Args:
             source_text: Original text
             translated_text: Translated text to validate
+            context: Context of the translation
             term_base: Optional term base dictionary
-            skip_llm_on_issues: Whether to skip LLM validation if other issues found
             target_lang: Target language code for term base validation
         """
         issues = []
@@ -81,22 +80,6 @@ class QAHandler:
             elif term_base:
                 self.logger.warning("Term base provided but target language missing - skipping term base validation")
             
-            # If we found issues and skip_llm_on_issues is True, return early
-            if issues and skip_llm_on_issues:
-                self.logger.info("Skipping LLM validation due to existing issues")
-                return issues
-            
-            # Perform LLM-based validation
-            if self.llm_handler:  # Only if LLM handler is configured
-                try:
-                    llm_issues = await self._validate_with_llm(source_text, translated_text)
-                    if llm_issues:
-                        self.logger.warning(f"Found LLM validation issues: {llm_issues}")
-                        issues.extend(llm_issues)
-                except Exception as e:
-                    self.logger.error(f"LLM validation failed: {str(e)}", exc_info=True)
-                    issues.append(f"LLM validation error: {str(e)}")
-            
             return issues
             
         except Exception as e:
@@ -111,17 +94,17 @@ class QAHandler:
         source_caps = re.findall(r'\b[A-Z]{2,}\b', source)
         for word in source_caps:
             if word in source and not any(word in t for t in re.findall(r'\b[A-Z]{2,}\b', translation)):
-                issues.append(f"Capitalization mismatch for term: {word}")
+                issues.append(f"Capitalization mismatch for term: {word} between source ({source}) and translation ({translation})")
         
         # Check newline preservation
         if source.count('\\n') != translation.count('\\n'):
-            issues.append("Newline count mismatch between source and translation")
+            issues.append(f"Newline count mismatch between source ({source}) and translation ({translation})")
             
         # Check ending punctuation
         source_end = re.search(r'[.!?:,]$', source)
         trans_end = re.search(r'[.!?:,]$', translation)
         if bool(source_end) != bool(trans_end):
-            issues.append("Ending punctuation mismatch")
+            issues.append(f"Ending punctuation does not match between source ({source}) and translation ({translation})")
             
         return issues
     
@@ -134,29 +117,29 @@ class QAHandler:
             source_terms = self._extract_non_translatable_terms(source)
             for term in source_terms:
                 if term not in translation:
-                    issues.append(f"Non-translatable term '{term}' must appear exactly as in source")
+                    issues.append(f"Non-translatable term '{term}' must appear exactly as in source ({source})")
                 elif translation.count(term) != source.count(term):
-                    issues.append(f"Non-translatable term '{term}' appears {translation.count(term)} times in translation but {source.count(term)} times in source")
+                    issues.append(f"Non-translatable term '{term}' appears {translation.count(term)} times in translation ({translation}) but {source.count(term)} times in source ({source})")
         
         # Check square brackets
         source_brackets = re.findall(r'\[.*?\]', source)
         trans_brackets = re.findall(r'\[.*?\]', translation)
         if len(source_brackets) != len(trans_brackets):
-            issues.append("Square bracket markup count mismatch")
+            issues.append(f"Square bracket markup count mismatch between source ({source}) and translation ({translation})")
         else:
             for s, t in zip(source_brackets, trans_brackets):
                 if s != t:
-                    issues.append(f"Square bracket content modified: {s} -> {t}")
+                    issues.append(f"Square bracket content modified: {s} -> {t} between source ({source}) and translation ({translation})")
         
         # Check curly braces
         source_braces = re.findall(r'\{.*?\}', source)
         trans_braces = re.findall(r'\{.*?\}', translation)
         if len(source_braces) != len(trans_braces):
-            issues.append("Curly brace markup count mismatch")
+            issues.append(f"Curly brace markup count mismatch between source ({source}) and translation ({translation})")
         else:
             for s, t in zip(source_braces, trans_braces):
                 if s != t:
-                    issues.append(f"Curly brace content modified: {s} -> {t}")
+                    issues.append(f"Curly brace content modified: {s} -> {t} between source ({source}) and translation ({translation})")
                     
         return issues
     
@@ -208,13 +191,32 @@ class QAHandler:
             self.logger.debug("No term base issues found")
         return issues
     
-    async def _validate_with_llm(self, source_text: str, translated_text: str) -> List[str]:
-        """Use LLM to validate translation quality."""
-        prompt = (
-            f"You are a professional translation validator. Please review this translation:\n\n"
-            f"Source text: {source_text}\n"
-            f"Translated text: {translated_text}\n\n"
-            f"Evaluate the following aspects:\n"
+    
+    async def validate_with_llm_batch(self, items: List[Dict[str, str]], target_lang: str) -> List[List[str]]:
+        """Use LLM to validate multiple translations at once.
+        
+        Args:
+            items: List of dictionaries containing 'source_text', 'translated_text', and 'context'
+            target_lang: Target language code
+            
+        Returns:
+            List of lists containing validation issues for each translation
+        """
+        combined_prompt = (
+            f"You are a professional translation validator for {target_lang} language. "
+            f"Please review these translations and evaluate each one:\n\n"
+        )
+        
+        for i, item in enumerate(items, 1):
+            combined_prompt += (
+                f"Translation #{i}:\n"
+                f"Source text: {item['source_text']}\n"
+                f"Translated text: {item['translated_text']}\n"
+                f"Context: {item['context']}\n\n"
+            )
+        
+        combined_prompt += (
+            f"For each translation, evaluate:\n"
             f"1. Semantic accuracy (does it convey the same meaning?)\n"
             f"2. Cultural appropriateness\n"
             f"3. Natural flow and readability\n"
@@ -224,40 +226,57 @@ class QAHandler:
         validation_schema = {
             "type": "object",
             "properties": {
-                "is_valid": {
-                    "type": "boolean",
-                    "description": "Whether the translation is valid"
-                },
-                "issues": {
+                "validations": {
                     "type": "array",
                     "items": {
-                        "type": "string"
-                    },
-                    "description": "List of identified issues"
+                        "type": "object",
+                        "properties": {
+                            "translation_number": {"type": "integer"},
+                            "is_valid": {"type": "boolean"},
+                            "issues": {
+                                "type": "array",
+                                "items": {"type": "string"}
+                            }
+                        },
+                        "required": ["translation_number", "is_valid", "issues"]
+                    }
                 }
             },
-            "required": ["is_valid", "issues"]
+            "required": ["validations"]
         }
         
-        try:
-            response = await self.llm_handler.generate_completion(
-                messages=[
-                    {"role": "system", "content": "You are a professional translation validator."},
-                    {"role": "user", "content": prompt}
-                ],
-                json_schema=validation_schema
-            )
+        response = await self.llm_handler.generate_completion(
+            messages=[
+                {"role": "system", "content": f"You are a professional translation validator for {target_lang} language."},
+                {"role": "user", "content": combined_prompt}
+            ],
+            json_schema=validation_schema
+        )
+        
+        result = self.llm_handler.extract_structured_response(response)
+        validations = result.get("validations", [])
+        
+        # Convert to list of issue lists, maintaining original order
+        all_issues = []
+        for item in validations:
+            if item["is_valid"]:
+                all_issues.append([])
+            else:
+                all_issues.append([f"LLM found issue: {issue}" for issue in item["issues"]])
+        
+        return all_issues
+
+    async def validate_with_llm(self, source_text: str, translated_text: str, context: str, target_lang: str) -> List[str]:
+        """Use LLM to validate translation quality."""
+        items = [{
+            'source_text': source_text,
+            'translated_text': translated_text,
+            'context': context
+        }]
+        
+        results = await self.validate_with_llm_batch(items, target_lang)
+        return results[0] if results else []
             
-            result = self.llm_handler.extract_structured_response(response)
-            
-            if result["is_valid"]:
-                return []
-            
-            return [f"LLM found issue: {issue}" for issue in result["issues"]]
-            
-        except Exception as e:
-            return [f"LLM validation failed: {str(e)}"]
-    
     def _compile_patterns(self, patterns: List[Dict[str, str]]) -> List[Pattern]:
         """Compile regex patterns for non-translatable terms."""
         if not patterns:
