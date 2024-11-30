@@ -218,11 +218,11 @@ async def translate(ctx, target_langs, verbose):
         if ctx.term_base_handler and sheet_name == ctx.config['term_base']['sheet_name']:
             continue
         
-        # Get initial sheet data
+        # Translate missing entries in the sheet
         await translation_manager.ensure_sheet_translations(sheet_name, 
             ctx.source_lang, ctx.target_langs, use_term_base=True)
 
-        logger.info(f"Completed processing sheet: {sheet_name}")
+        logger.debug(f"Completed processing sheet: {sheet_name}")
     
     # Print token usage statistics at the end
     translation_manager.llm_handler.print_token_usage()

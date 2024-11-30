@@ -63,20 +63,20 @@ class TranslationManager:
         # Get the sheet data
         df = self.sheets_handler.get_sheet_data(sheet_name)
         # Detect missing translations
-        missing_translations = self.detect_missing_translations(df, source_lang, target_langs)
+        missing_translations = self._detect_missing_translations(df, source_lang, target_langs)
         if len(missing_translations) > 0:
             logger.info(f"[{sheet_name}] Found missing translations for {len(missing_translations)} languages: " + 
                        ", ".join(f"{lang} ({len(items)} items)" for lang, items in missing_translations.items()))
 
         if missing_translations and len(missing_translations) > 0:
             # Process all translations and update the DataFrame
-            await self._process_missing_translations(missing_translations, use_term_base)
+            await self._process_missing_translations(df, missing_translations, use_term_base)
             
             logger.debug(f"Updated sheet '{sheet_name}' with new translations")
         else:
             logger.debug(f"No missing translations found for sheet '{sheet_name}'")
 
-    def detect_missing_translations(self, df: pd.DataFrame, source_lang: str, target_langs: List[str]) -> Dict[str, List[int]]:
+    def _detect_missing_translations(self, df: pd.DataFrame, source_lang: str, target_langs: List[str]) -> Dict[str, List[int]]:
         """Detect missing translations in the DataFrame.
         
         Args:
@@ -135,70 +135,57 @@ class TranslationManager:
         
         return missing_translations
 
-    async def _process_missing_translations(self, missing_translations: Dict[str, List[Dict[str, Any]]],
+    async def _process_missing_translations(self, df: pd.DataFrame, missing_translations: Dict[str, List[Dict[str, Any]]],
                                             use_term_base: bool) -> None:
         # First ensure term base is complete for all target languages
         #if use_term_base:
         #    await self.ensure_term_base_translations(target_langs)
+        sheet_name = df.attrs['sheet_name']
         
-        # Process each language group
-        for lang, missing_items in missing_translations.items():
-            texts = []
-            contexts = []
-            cells = []
-            
-            # Extract texts, contexts, and row indices
-            for item in missing_items:
-                texts.append(item['source_text'])
-                contexts.append(item['context'])
-                cells.append(item['row_idx'])
-            
-            # Get term base for this language
-            term_base = self.term_base_handler.get_terms_for_language(lang) if use_term_base else None
-            
-            # Process the batch
-            await self._batch_translate(
-                texts=texts,
+        while len(missing_translations) > 0:
+            lang, missing_items = next(iter(missing_translations.items()))
+            batch = missing_items[:self.batch_size]
+
+            # Perform translation
+            # TODO: Create context for each item in batch
+            batch_translations = await self._perform_translation(
+                source_texts=[item['source_text'] for item in batch],
+                source_lang=self.config['languages']['source'],
                 target_lang=lang,
-                contexts=contexts,
-                cells=cells,
-                term_base=term_base
+                contexts=[item['context'] for item in batch],
+                issues=[item.get('last_issues', []) for item in batch],
+                term_base=None
             )
 
-    async def _batch_translate(self, texts: List[str], target_lang: str,
-                            contexts: List[str],
-                            cells: List[Any],
-                            term_base: Dict[str, Dict[str, Any]] = None
-                            ):
-        """Translate a batch of texts.
-        
-        Args:
-            texts: List of texts to translate
-            target_lang: Target language code
-            contexts: List of context strings for each text
-            cells: List of cell indices for DataFrame updates
-            term_base: Term base dictionary
-            
-        Yields:
-            List of dictionaries containing translations and metadata for each batch
-        """
-        if len(texts) != len(contexts) or len(texts) != len(cells):
-            raise ValueError("Number of texts, contexts and cells must match")
-        
-        # Process in batches
-        for i in range(0, len(texts), self.batch_size):
-            batch_texts = texts[i:i + self.batch_size]
-            batch_contexts = contexts[i:i + self.batch_size]
-            batch_cells = cells[i:i + self.batch_size]
-            
-            logger.info(f"Processing batch {i//self.batch_size + 1} of {(len(texts) + self.batch_size - 1)//self.batch_size}")
-            
-            await self._perform_translation_with_retry(batch_texts, batch_contexts, batch_cells, target_lang, term_base)
-            
-            # Apply batch delay if this is not the last batch
-            if i + self.batch_size < len(texts):
-                logger.debug(f"Waiting {self.batch_delay} seconds before processing next batch...")
-                await asyncio.sleep(self.batch_delay)
+            for batch_idx, (missing_item, (translation, issues)) in enumerate(zip(batch, batch_translations)):
+                if issues and len(issues) > 0:
+                    logger.warning(f"[{sheet_name}] Translation '{translation}' has issues for {lang}: {issues}")
+
+                    # Add translation and issues to the last_issues list
+                    all_issues = missing_item.get('last_issues', []) + [{
+                        'translation': translation,
+                        'issues': issues,
+                    }]
+                    missing_item['last_issues'] = all_issues
+
+                    if len(all_issues) >= self.max_retries:
+                        logger.critical(f"[{sheet_name}] Max retries reached for {lang} item {missing_item['source_text']}. Giving up.")
+                        del missing_items[batch_idx]
+                        continue
+
+                else:
+                    self.sheets_handler.modify_cell_data(
+                        sheet_name=sheet_name,
+                        row_idx=batch[batch_idx]['row_idx'],
+                        col_idx=batch[batch_idx]['col_idx'],
+                        new_value=translation
+                    )
+                    # This will remove the item at batch_idx from missing_items list
+                    # But since we're iterating over the list in reverse order, we should use del instead
+                    del missing_items[batch_idx]
+
+
+
 
     async def _perform_translation_with_retry(self, batch_texts: List[str], batch_contexts: List[str], 
                                               batch_cells: List[Any], target_lang: str,
@@ -249,26 +236,41 @@ class TranslationManager:
                 logger.warning(f"Translation attempt {retries} failed, retrying in {self.retry_delay} seconds. Error: {e.__class__.__name__}: {str(e)} in {e.__traceback__.tb_frame.f_code.co_filename.split('/')[-1]}:{e.__traceback__.tb_lineno}")
                 await asyncio.sleep(self.retry_delay * retries)  # Exponential backoff
 
+
+
     def _prepare_texts_with_contexts(self, source_texts: List[str], 
                                      contexts: List[Dict[str, Any]], 
+                                     issues: List[Dict[str, Any]],
                                      term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
         """Prepare texts with their contexts for translation.
         
         Args:
             source_texts: List of texts to translate
             contexts: List of context strings for each text
+            issues: List of issues for each text
             term_base: Optional term base dictionary
             
         Returns:
             Combined text string with contexts and term base
         """
+
+        def escape(text: str) -> str:
+            return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+        def escape_xml(key: str, item: Any) -> str:
+            escaped_key = escape(key)
+            escaped_item = escape(str(item))
+            return f"<{escaped_key}>{escaped_item}</{escaped_key}>"
+
         texts_with_contexts = []
-        for i, (text, context) in enumerate(zip(source_texts, contexts)):
+        for i, (text, context, issues) in enumerate(zip(source_texts, contexts, issues)):
             exc = []
+            # Add context
             for key, item in context.items():
-                escaped_key = key.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                escaped_item = str(item).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                exc.append(f"<{escaped_key}>{escaped_item}</{escaped_key}>")
+                exc.append(escape_xml(key, item))
+            # Add issues
+            for issue in issues:
+                exc.append(f"<FAILED_TRANSLATION>{escape(issue['translation'])}: {escape(issue['issues'])}</FAILED_TRANSLATION>")
             expanded_context = "".join(exc)
             texts_with_contexts.append(f"<text id='{i+1}'>{text}</text>\n<context id='{i+1}'>{expanded_context}</context>")
         
@@ -277,10 +279,7 @@ class TranslationManager:
         if term_base:
             term_base_xml = ["<term_base>"]
             for term, data in term_base.items():
-                escaped_term = term.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                escaped_translation = data["translation"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                escaped_context = data["context"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                term_base_xml.append(f"<term><source>{escaped_term}</source><translation>{escaped_translation}</translation><context>{escaped_context}</context></term>")
+                term_base_xml.append(f"<term><source>{escape(term)}</source><translation>{escape(data["translation"])}</translation><context>{escape(data["context"])}</context></term>")
             term_base_xml.append("</term_base>")
             combined_texts += "\n\nTerm Base References:\n" + "\n".join(term_base_xml)
             
@@ -380,7 +379,7 @@ Translate each text maintaining all rules. Return translations and term suggesti
         }
 
     async def _get_llm_translations(self, source_texts: List[str], source_lang: str,
-                                  target_lang: str, contexts: List[str],
+                                  target_lang: str, contexts: List[str], issues: List[Dict[str, Any]],
                                   term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
         """Get translations from LLM.
         
@@ -389,13 +388,14 @@ Translate each text maintaining all rules. Return translations and term suggesti
             source_lang: Source language code
             target_lang: Target language code
             contexts: List of context strings for each text
+            issues: List of issues for each text
             term_base: Optional term base dictionary
             
         Returns:
             Dictionary containing translations and term suggestions
         """
         # Prepare texts and create prompt
-        combined_texts = self._prepare_texts_with_contexts(source_texts, contexts, term_base)
+        combined_texts = self._prepare_texts_with_contexts(source_texts, contexts, issues, term_base)
         prompt = self._create_translation_prompt(combined_texts, target_lang, source_lang)
         
         # Get translation schema and generate completion
@@ -464,8 +464,7 @@ Translate each text maintaining all rules. Return translations and term suggesti
         return results
 
     async def _perform_translation(self, source_texts: List[str], source_lang: str, 
-                            target_lang: str, contexts: List[str],
-                            cells: List[Any],
+                            target_lang: str, contexts: List[str], issues: List[Dict[str, Any]],
                             term_base: Dict[str, Dict[str, Any]] = None
                             ) -> List[Tuple[str, List[str]]]:
         """Internal method to perform batch translation and update cells.
@@ -475,7 +474,7 @@ Translate each text maintaining all rules. Return translations and term suggesti
             source_lang: Source language code
             target_lang: Target language code
             contexts: List of context strings for each text
-            cells: List of row indices for updates
+            issues: List of issues for each text
             term_base: Optional term base dictionary
             
         Returns:
@@ -487,6 +486,7 @@ Translate each text maintaining all rules. Return translations and term suggesti
             source_lang=source_lang,
             target_lang=target_lang,
             contexts=contexts,
+            issues=issues,
             term_base=term_base
         )
         

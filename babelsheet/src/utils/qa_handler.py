@@ -89,7 +89,7 @@ class QAHandler:
             # Perform LLM-based validation
             if self.llm_handler:  # Only if LLM handler is configured
                 try:
-                    llm_issues = await self._validate_with_llm(source_text, translated_text)
+                    llm_issues = await self._validate_with_llm(source_text, translated_text, target_lang)
                     if llm_issues:
                         self.logger.warning(f"Found LLM validation issues: {llm_issues}")
                         issues.extend(llm_issues)
@@ -208,10 +208,10 @@ class QAHandler:
             self.logger.debug("No term base issues found")
         return issues
     
-    async def _validate_with_llm(self, source_text: str, translated_text: str) -> List[str]:
+    async def _validate_with_llm(self, source_text: str, translated_text: str, target_lang: str) -> List[str]:
         """Use LLM to validate translation quality."""
         prompt = (
-            f"You are a professional translation validator. Please review this translation:\n\n"
+            f"You are a professional translation validator for {target_lang} language. Please review this translation:\n\n"
             f"Source text: {source_text}\n"
             f"Translated text: {translated_text}\n\n"
             f"Evaluate the following aspects:\n"
