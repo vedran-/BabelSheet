@@ -316,7 +316,8 @@ class SimpleUIManager:
         # Add status icon and source
         output.append(f"{status} ", style="bold")
         output.append(f"[{lang}] ", style="magenta")
-        output.append(f"{source} → ")
+        output.append(f"{source} ", style="rgb(135,206,235)")
+        output.append(f"→ ")
         
         # Add translation with appropriate color
         if translation:

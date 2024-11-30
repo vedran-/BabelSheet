@@ -217,30 +217,15 @@ async def translate(ctx, target_langs, verbose):
         term_base_handler=ctx.term_base_handler
     )
 
-    # First, ensure term base translations are up to date if we have a term base
-    if ctx.term_base_handler:
-        logger.debug("Ensuring term base translations are up to date...")
-        await translation_manager.ensure_sheet_translations(ctx.term_base_handler.sheet_name, 
-            ctx.source_lang, ctx.target_langs, use_term_base=False)
-        translation_manager.llm_handler.print_token_usage()
+    # Translate all sheets using the new language-based approach
+    await translation_manager.translate_all_sheets(
+        source_lang=ctx.source_lang,
+        target_langs=ctx.target_langs,
+        use_term_base=True
+    )
 
-
-    # Process each sheet
-    sheet_names = ctx.sheets_handler.get_sheet_names()
-    for sheet_name in sheet_names:
-        logger.debug(f"Processing sheet: {sheet_name}")
-        
-        # Skip term base sheet if it exists
-        if ctx.term_base_handler and sheet_name == ctx.config['term_base']['sheet_name']:
-            continue
-        
-        # Translate missing entries in the sheet
-        await translation_manager.ensure_sheet_translations(sheet_name, 
-            ctx.source_lang, ctx.target_langs, use_term_base=True)
-
-        logger.debug(f"Completed processing sheet: {sheet_name}")
-        translation_manager.llm_handler.print_token_usage()
-        
+    logger.debug("Translation completed")
+    translation_manager.llm_handler.print_token_usage()
 
 @cli.command()
 @click.pass_context

@@ -43,7 +43,7 @@ class QAHandler:
         issues = []
         
         try:
-            self.logger.debug(f"Validating translation:\nSource: {source_text}\nTranslated: {translated_text}")
+            self.logger.debug(f"Validating translation: '{source_text}' => '{translated_text}' ({target_lang})")
             
             # Check for non-translatable terms only if patterns are configured
             if self.patterns:
@@ -155,23 +155,16 @@ class QAHandler:
         self.logger.debug(f"Validating translation against term base for language: {target_lang}")
         
         for source_term, term_data in term_base.items():
-            translations = term_data.get('translations', {})
+            expected_translation = term_data.get('translation', '')
             comment = term_data.get('comment', '')
             
-            # Skip if no translations available
-            if not translations:
-                self.logger.debug(f"Skipping term '{source_term}' - no translations available")
-                continue
-            
-            # Get translation for target language
-            expected_translation = translations.get(target_lang)
             if not expected_translation:
-                self.logger.debug(f"Skipping term '{source_term}' - no translation for {target_lang}")
+                self.logger.warning(f"Skipping term '{source_term}' - no translation for {target_lang}")
                 continue
             
             # Check if source term appears in translation
             source_term_lower = source_term.lower()
-            translation_lower = translation.lower()
+            translation_lower = expected_translation.lower()
             
             # Use word boundary check to avoid partial matches
             if f" {source_term_lower} " in f" {translation_lower} ":

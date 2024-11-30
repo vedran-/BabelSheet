@@ -137,9 +137,10 @@ class TranslationManager:
         df = self.sheets_handler.get_sheet_data(sheet_name)
         # Detect missing translations
         missing_translations = self._detect_missing_translations(df, source_lang, target_langs)
-        if len(missing_translations) > 0:
-            logger.info(f"[{sheet_name}] Found missing translations for {len(missing_translations)} languages: " + 
-                       ", ".join(f"{lang} ({len(items)} items)" for lang, items in missing_translations.items()))
+        
+        #if len(missing_translations) > 0:
+        #    logger.info(f"[{sheet_name}] Found missing translations for {len(missing_translations)} languages: " + 
+        #               ", ".join(f"{lang} ({len(items)} items)" for lang, items in missing_translations.items()))
 
         if missing_translations and len(missing_translations) > 0:
             # Process all translations and update the DataFrame
@@ -193,7 +194,7 @@ class TranslationManager:
                 self.ui.info("-" * 40)
         self.ui.info("=" * 80)
 
-    def _detect_missing_translations(self, df: pd.DataFrame, source_lang: str, target_langs: List[str]) -> Dict[str, List[int]]:
+    def _detect_missing_translations(self, df: pd.DataFrame, source_lang: str, target_langs: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """Detect missing translations in the DataFrame.
         
         Args:
@@ -219,12 +220,9 @@ class TranslationManager:
 
             # Check each row
             for row_idx in range(rows_count):
-                if row_idx == 0:
-                    continue
-                
                 source_cell = df.iloc[row_idx][source_lang_idx]
                 # Skip if source text is empty
-                if source_cell.is_empty():
+                if source_cell is None or source_cell.is_empty():
                     logger.debug(f"Skipping row {row_idx} for language {lang} because source text is empty")
                     continue
 
@@ -238,8 +236,8 @@ class TranslationManager:
 
                     context = self.sheets_handler.get_row_context(df, row_idx)
 
-                    lang_missing.append(
-                    {
+                    lang_missing.append({
+                        'sheet_name': df.attrs['sheet_name'],
                         'row_idx': row_idx,
                         'col_idx': lang_idx,
                         'source_text': source_cell.value,
@@ -248,23 +246,138 @@ class TranslationManager:
                     })
 
             if len(lang_missing) > 0:
-                missing_translations[lang] = lang_missing
+                if lang not in missing_translations:
+                    missing_translations[lang] = []
+                missing_translations[lang].extend(lang_missing)
         
         return missing_translations
 
-    async def _process_missing_translations(self, df: pd.DataFrame, missing_translations: Dict[str, List[Dict[str, Any]]], use_term_base: bool) -> None:
-        sheet_name = df.attrs['sheet_name']
+    async def collect_all_missing_translations(self, source_lang: str, target_langs: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+        """Collect all missing translations from all sheets, organized by language.
+        
+        Args:
+            source_lang: Source language code
+            target_langs: List of target language codes
+            
+        Returns:
+            Dictionary mapping language codes to lists of missing translations across all sheets
+        """
+        all_missing_translations = {}
+        
+        # Get all sheet names
+        sheet_names = self.sheets_handler.get_sheet_names()
+        total_sheets = len(sheet_names)
+        
+        self.ui.info(f"Collecting missing translations from {total_sheets} sheets...")
+        
+        # Process each sheet
+        for i, sheet_name in enumerate(sheet_names, 1):
+            # Skip term base sheet as it's handled separately
+            if self.term_base_handler and sheet_name == self.term_base_handler.sheet_name:
+                continue
+                
+            self.ui.info(f"Analyzing sheet {i}/{total_sheets}: {sheet_name}")
+            
+            # Get the sheet data
+            df = self.sheets_handler.get_sheet_data(sheet_name)
+            df.attrs['sheet_name'] = sheet_name  # Store sheet name in DataFrame attributes
+            
+            # Detect missing translations for this sheet
+            sheet_missing = self._detect_missing_translations(df, source_lang, target_langs)
+            
+            # Report findings for this sheet
+            if sheet_missing:
+                sheet_total = sum(len(items) for items in sheet_missing.values())
+                self.ui.info(f"Found {sheet_total} missing translations in {sheet_name}:")
+                for lang, items in sheet_missing.items():
+                    self.ui.info(f"  - {lang}: {len(items)} items")
+            
+            # Merge with all missing translations
+            for lang, items in sheet_missing.items():
+                if lang not in all_missing_translations:
+                    all_missing_translations[lang] = []
+                all_missing_translations[lang].extend(items)
+        
+        # Log final summary
+        if all_missing_translations:
+            total_missing = sum(len(items) for items in all_missing_translations.values())
+            self.ui.info("\nCollection complete. Summary of all missing translations:")
+            for lang, items in all_missing_translations.items():
+                self.ui.info(f"  - {lang}: {len(items)} items")
+            self.ui.info(f"Total missing translations: {total_missing}")
+        else:
+            self.ui.info("\nNo missing translations found in any sheet.")
+        
+        return all_missing_translations
+
+    async def translate_all_sheets(self, source_lang: str, target_langs: List[str], use_term_base: bool = True) -> None:
+        """Translate all missing translations across all sheets, organized by language.
+        
+        Args:
+            source_lang: Source language code
+            target_langs: List of target language codes
+            use_term_base: Whether to use the term base for translations
+        """
+        
+        # Now collect and process all other sheets by language
+        all_missing_translations = await self.collect_all_missing_translations(source_lang, target_langs)
+        
+        if not all_missing_translations:
+            logger.info("No missing translations found in any sheet")
+            return
+        
+        # Process all missing translations
+        await self._process_missing_translations(None, all_missing_translations, use_term_base=True)
+        
+        # Display final statistics
+        self._display_statistics()
+        
+        # Save all changes
+        self.sheets_handler.save_changes()
+
+    async def _process_missing_translations(self, df: Optional[pd.DataFrame], missing_translations: Dict[str, List[Dict[str, Any]]], use_term_base: bool) -> None:
+        """Process missing translations, either for a single sheet or across all sheets.
+        
+        Args:
+            df: DataFrame containing translations (None if processing across all sheets)
+            missing_translations: Dictionary mapping language codes to missing translations
+            use_term_base: Whether to use the term base for translations
+        """
         skipped_items = []
         
         total_items = sum(len(items) for items in missing_translations.values())
         processed_items = 0
+        source_lang = self.config['languages']['source']
         
         self.ui.start()
         self.ui.info(f"Starting batch translation for {len(missing_translations)} languages ({total_items} items total)")
-        
+
+        last_lang = None
+        async def check_language_change(lang: str) -> None:
+            nonlocal last_lang
+            if last_lang == lang:
+                return
+            
+            last_lang = lang
+            self.ui.info(f"Processing language {lang} ({len(missing_translations[lang])} items)")
+
+            # Ensure term base translations are up to date if we have a term base
+            if self.term_base_handler and use_term_base:
+                logger.debug("Ensuring term base translations are up to date...")
+                self.ui.debug("Processing term base sheet first...")
+                await self.ensure_sheet_translations(
+                    sheet_name=self.term_base_handler.sheet_name,
+                    source_lang=source_lang,
+                    target_langs=[lang],
+                    use_term_base=False  # Don't use term base for translating itself
+                )
+                self.ui.debug("Term base processing complete.")
+
         try:
             while len(missing_translations) > 0:
                 lang, missing_items = next(iter(missing_translations.items()))
+                await check_language_change(lang)
+                
                 batch = missing_items[:self.batch_size]
                 
                 # Add pending translations to UI
@@ -278,11 +391,11 @@ class TranslationManager:
                     self.ui.add_translation_entry(item['source_text'], lang)
                 
                 # Perform translation
-                contexts = [self.sheets_handler.get_row_context(df, item['row_idx']) for item in batch]
+                contexts = [item['context'] for item in batch]
                 
                 batch_translations = await self._perform_translation(
                     source_texts=[item['source_text'] for item in batch],
-                    source_lang=self.config['languages']['source'],
+                    source_lang=source_lang,
                     target_lang=lang,
                     contexts=contexts,
                     issues=[item.get('last_issues', []) for item in batch],
@@ -291,6 +404,7 @@ class TranslationManager:
                 
                 for idx, (missing_item, (translation, issues)) in enumerate(zip(batch, batch_translations)):
                     processed_items += 1
+                    sheet_name = missing_item['sheet_name']
                     
                     if issues:
                         self.ui.warning(f"Translation '{translation}' has issues for {lang}: {issues}")
@@ -532,7 +646,7 @@ Translate each text maintaining all rules. Return translations and term suggesti
                     comment=term["comment"],
                     translations={target_lang: term["suggested_translation"]}
                 )
-            self.logger.info(f"[TERM_BASE] Added {len(term_suggestions)} new terms to the term base")
+            self.logger.info(f"[TERM_BASE] Added {len(term_suggestions)} new terms to the term base: {', '.join(term['source_term'] for term in term_suggestions)}")
             self.sheets_handler.save_changes()
 
     async def _validate_translations(self, source_texts: List[str], translations: List[Dict[str, Any]], 
