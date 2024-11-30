@@ -78,7 +78,7 @@ class TermBaseHandler:
                     continue
 
                 self.sheets_handler.modify_cell_data(self.sheet_name, term_idx + 1, column_idx, translation)
-                ui.info(f"Added translation for term '{term}' in {lang}: '{translation}'")
+                ui.add_term_base_entry(term, lang, translation, comment)
 
         if term_idx is not None:
             ui.warning(f"Term '{term}' already exists in term base")

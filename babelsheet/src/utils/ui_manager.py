@@ -42,24 +42,30 @@ class UIManager:
         table.add_column("Status", style="bold")
         table.add_column("Translation", overflow="fold")
         
-        # Add historical entries
-        for entry in self.translation_history:
-            table.add_row(
-                entry["time"],
-                entry["source"],
-                entry["lang"],
-                entry["status"],
-                entry["translation"]
-            )
+        # Combine current batch and history, but reverse the order
+        all_entries = list(self._current_batch)
+        all_entries.extend(self.translation_history)
+        
+        # Show newest entries first
+        for entry in reversed(all_entries):
+            row_style = "blue" if entry.get("type") == "term_base" else None
             
-        # Add current batch entries
-        for entry in self._current_batch:
+            # Truncate translation text if needed
+            translation = entry["translation"]
+            lines = translation.splitlines()
+            if len(lines) > 4:
+                # Keep first 4 lines and add ellipsis
+                translation = "\n".join(lines[:4]) + "\n..."
+            elif len(translation) > 200:  # Also limit by character count
+                translation = translation[:197] + "..."
+            
             table.add_row(
                 entry["time"],
                 entry["source"],
                 entry["lang"],
                 entry["status"],
-                entry["translation"]
+                translation,
+                style=row_style
             )
             
         return Panel(table, title="🔄 Translation Progress", border_style="blue")
@@ -97,13 +103,23 @@ class UIManager:
             self.live = None
             
     def add_translation_entry(self, source: str, lang: str, status: str = "⏳ Pending", 
-                            translation: str = "", error: str = ""):
-        """Add a new translation entry."""
+                            translation: str = "", error: str = "", entry_type: str = "translation"):
+        """Add a new translation entry.
+        
+        Args:
+            source: Source text
+            lang: Target language
+            status: Status emoji and text
+            translation: Translated text
+            error: Error message if any
+            entry_type: Type of entry ("translation" or "term_base")
+        """
         time = datetime.now().strftime("%H:%M:%S")
         translation_text = f"{translation} {error}" if error else translation
         
         entry = {
             "time": time,
+            "type": entry_type,
             "source": source,
             "lang": lang,
             "status": status,
@@ -163,4 +179,11 @@ class UIManager:
         self.add_status(message, "critical")
         
     def debug(self, message: str):
-        self.add_status(message, "debug") 
+        self.add_status(message, "debug")
+        
+    def add_term_base_entry(self, term: str, lang: str, translation: str = "", comment: str = ""):
+        """Add a term base entry with special highlighting."""
+        status = "📖 Term Base"
+        if comment:
+            translation = f"{translation} (Comment: {comment})"
+        self.add_translation_entry(term, lang, status, translation, entry_type="term_base") 
