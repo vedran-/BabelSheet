@@ -212,8 +212,13 @@ class QAHandler:
                 f"Translation #{i}:\n"
                 f"Source text: {item['source_text']}\n"
                 f"Translated text: {item['translated_text']}\n"
-                f"Context: {item['context']}\n\n"
+                f"Context: {item['context']}\n"
             )
+
+            if item['previous_issues'] and len(item['previous_issues']) > 0:
+                combined_prompt += f"Previous issues: {item['previous_issues']}\n"
+
+            combined_prompt += "\n"
         
         combined_prompt += (
             f"For each translation, evaluate:\n"
@@ -266,12 +271,13 @@ class QAHandler:
         
         return all_issues
 
-    async def validate_with_llm(self, source_text: str, translated_text: str, context: str, target_lang: str) -> List[str]:
+    async def validate_with_llm(self, source_text: str, translated_text: str, context: str, issues: List[str], target_lang: str) -> List[str]:
         """Use LLM to validate translation quality."""
         items = [{
             'source_text': source_text,
             'translated_text': translated_text,
-            'context': context
+            'context': context,
+            'issues': issues
         }]
         
         results = await self.validate_with_llm_batch(items, target_lang)
@@ -325,6 +331,7 @@ class QAHandler:
         is defined as start='{[' and end=']}', and the text contains '{[NUMBER]}', the entire
         string '{[NUMBER]}' will be returned as a non-translatable term.
         """
+        # TODO - fix full pattern matching
         if not self.patterns:
             return []
             

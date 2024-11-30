@@ -61,11 +61,15 @@ class TermBaseHandler:
                 self.logger.critical(f"Language `{lang}`: term not found: `{term}`")
                 continue
 
-            term_combined_context = ' '.join([row[idx].value for idx in self.sheet_data.attrs['context_column_indexes']])
+            combined_context = []
+            for idx in self.sheet_data.attrs['context_column_indexes']:
+                if row[idx] is not None and not row[idx].is_empty():
+                    combined_context.append(row[idx].value)
+            combined_context = ' '.join(combined_context)
 
             terms[term] = { 
                 'translation': translation,
-                'context': term_combined_context
+                'context': combined_context
             }
 
         return terms

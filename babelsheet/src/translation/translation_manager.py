@@ -148,14 +148,16 @@ class TranslationManager:
             batch = missing_items[:self.batch_size]
 
             # Perform translation
-            # TODO: Create context for each item in batch
+            # TODO: Create context for each item in batch at runtime
+            contexts = [self.sheets_handler.get_row_context(df, item['row_idx']) for item in batch]
+
             batch_translations = await self._perform_translation(
                 source_texts=[item['source_text'] for item in batch],
                 source_lang=self.config['languages']['source'],
                 target_lang=lang,
-                contexts=[item['context'] for item in batch],
+                contexts=contexts,
                 issues=[item.get('last_issues', []) for item in batch],
-                term_base=None
+                use_term_base=use_term_base
             )
 
             for idx, (missing_item, (translation, issues)) in enumerate(zip(batch, batch_translations)):
@@ -184,7 +186,8 @@ class TranslationManager:
                     # We successfully translated this item, remove it from missing_translations
                     missing_items.remove(missing_item)
 
-
+                if len(missing_items) == 0:
+                    missing_translations.pop(lang)
 
 
 
@@ -381,6 +384,7 @@ Translate each text maintaining all rules. Return translations and term suggesti
 
     async def _validate_translations(self, source_texts: List[str], translations: List[Dict[str, Any]], 
                                    contexts: List[str], term_base: Optional[Dict[str, Dict[str, Any]]],
+                                   previous_issues: List[Dict[str, Any]],
                                    target_lang: str) -> List[Tuple[str, List[str]]]:
         """Validate translations and combine with translator notes.
         
@@ -425,7 +429,8 @@ Translate each text maintaining all rules. Return translations and term suggesti
                 llm_validation_items.append({
                     'source_text': source_texts[i],
                     'translated_text': translated_text,
-                    'context': contexts[i]
+                    'context': contexts[i],
+                    'previous_issues': previous_issues[i]
                 })
                 llm_validation_indexes.append(i)
             
@@ -446,7 +451,7 @@ Translate each text maintaining all rules. Return translations and term suggesti
 
     async def _perform_translation(self, source_texts: List[str], source_lang: str, 
                             target_lang: str, contexts: List[str], issues: List[Dict[str, Any]],
-                            term_base: Dict[str, Dict[str, Any]] = None
+                            use_term_base: bool
                             ) -> List[Tuple[str, List[str]]]:
         """Internal method to perform batch translation and update cells.
         
@@ -461,6 +466,9 @@ Translate each text maintaining all rules. Return translations and term suggesti
         Returns:
             List of tuples containing (translated_text, issues) for each input text
         """
+
+        term_base = self.term_base_handler.get_terms_for_language(target_lang) if use_term_base else None
+
         # Get translations from LLM
         result = await self._get_llm_translations(
             source_texts=source_texts,
@@ -483,4 +491,5 @@ Translate each text maintaining all rules. Return translations and term suggesti
             translations=translations,
             contexts=contexts,
             term_base=term_base,
+            previous_issues=issues,
             target_lang=target_lang)
