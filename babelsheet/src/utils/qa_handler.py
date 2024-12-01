@@ -185,12 +185,13 @@ class QAHandler:
         return issues
     
     
-    async def validate_with_llm_batch(self, items: List[Dict[str, str]], target_lang: str) -> List[List[str]]:
+    async def validate_with_llm_batch(self, items: List[Dict[str, str]], target_lang: str, term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> List[List[str]]:
         """Use LLM to validate multiple translations at once.
         
         Args:
             items: List of dictionaries containing 'source_text', 'translated_text', and 'context'
             target_lang: Target language code
+            term_base: Optional term base dictionary
             
         Returns:
             List of lists containing validation issues for each translation
@@ -200,15 +201,19 @@ class QAHandler:
             f"Your task is to meticulously evaluate each translation for accuracy, consistency, and adherence to provided guidelines.\n\n"
         )
         
-        # Add term base information if available
-        if any('term_base' in item for item in items):
+        # Add term base at the beginning if available
+        if term_base:
             combined_prompt += (
                 "Term Base Guidelines:\n"
                 "- Verify that all term base translations are used consistently\n"
                 "- Check that game-specific terms match their approved translations\n"
                 "- Ensure special terms are preserved exactly as specified\n"
                 "- Flag any deviations from term base translations\n\n"
+                "Term Base Entries:\n"
             )
+            for term, data in term_base.items():
+                combined_prompt += f"- {term}: {data['translation']} (Context: {data['context']})\n"
+            combined_prompt += "\n"
 
         for i, item in enumerate(items, 1):
             combined_prompt += (
@@ -217,13 +222,6 @@ class QAHandler:
                 f"Translated text: {item['translated_text']}\n"
                 f"Context: {item['context']}\n"
             )
-
-            # Add term base entries if available
-            term_base = item.get('term_base', None)
-            if term_base and len(term_base) > 0:
-                combined_prompt += "Term Base Entries:\n"
-                for term, data in term_base.items():
-                    combined_prompt += f"- {term}: {data['translation']} (Context: {data['context']})\n"
 
             if item['previous_issues'] and len(item['previous_issues']) > 0:
                 combined_prompt += f"Previous issues: {item['previous_issues']}\n"

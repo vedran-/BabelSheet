@@ -86,6 +86,10 @@ class TranslationManager:
             f.write(f"{log_type} Translations Log - Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write("=" * 80 + "\n\n")
 
+    def escape(self, text: str) -> str:
+        """Escape special characters in text for XML-like format."""
+        return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
     def _log_translation_header(self, f):
         """Write common header information to the log file."""
         f.write(f"Time: {datetime.now().strftime('%H:%M:%S')}\n")
@@ -176,7 +180,7 @@ class TranslationManager:
         
         # Display failed items if any
         if self.stats['failed_items']:
-            self.ui.info("\nFailed Translations:")
+            self.ui.info("\nFailed Translations:", style="red")
             self.ui.info("-" * 80)
             for item in self.stats['failed_items']:
                 self.ui.info(f"Sheet: {item['sheet_name']}")
@@ -466,67 +470,56 @@ class TranslationManager:
         finally:
             self.ui.stop()
 
-    def _prepare_texts_with_contexts(self, source_texts: List[str], 
-                                     contexts: List[Dict[str, Any]], 
-                                     issues: List[Dict[str, Any]],
-                                     term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
+    def _prepare_texts_with_contexts(self, source_texts: List[str], contexts: List[Dict[str, Any]], issues: List[Dict[str, Any]], term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
         """Prepare texts with their contexts for translation.
         
         Args:
             source_texts: List of texts to translate
-            contexts: List of context strings for each text
+            contexts: List of context dictionaries for each text
             issues: List of issues for each text
             term_base: Optional term base dictionary
             
         Returns:
-            Combined text string with contexts and term base
+            Combined texts with contexts as a string
         """
-
-        def escape(text: str) -> str:
-            return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-        def escape_xml(key: str, item: Any) -> str:
-            escaped_key = escape(key)
-            escaped_item = escape(str(item))
-            return f"<{escaped_key}>{escaped_item}</{escaped_key}>"
-
         texts_with_contexts = []
-        for i, (text, context, issues) in enumerate(zip(source_texts, contexts, issues)):
+        for i, (text, context_dict, issue_list) in enumerate(zip(source_texts, contexts, issues)):
             exc = []
-            # Add context
-            for key, item in context.items():
-                exc.append(escape_xml(key, item))
+            # Add context from dictionary
+            for key, value in context_dict.items():
+                if value:  # Only add non-empty context
+                    exc.append(f"<{self.escape(key)}>{self.escape(str(value))}</{self.escape(key)}>")
             # Add issues
-            for issue in issues:
-                exc.append(f"<FAILED_TRANSLATION>'{escape(issue['translation'])}' error: {escape(issue['issues'])}</FAILED_TRANSLATION>")
+            for issue in issue_list:
+                exc.append(f"<FAILED_TRANSLATION>'{self.escape(issue['translation'])}' error: {self.escape(issue['issues'])}</FAILED_TRANSLATION>")
             expanded_context = "".join(exc)
             texts_with_contexts.append(f"<text id='{i+1}'>{text}</text>\n<context id='{i+1}'>{expanded_context}</context>")
         
-        combined_texts = "\n\n".join(texts_with_contexts)
+        return "\n\n".join(texts_with_contexts)
 
-        if term_base:
-            term_base_xml = ["<term_base>"]
-            for term, data in term_base.items():
-                term_base_xml.append(f"<term><source>{escape(term)}</source><translation>{escape(data["translation"])}</translation><context>{escape(data["context"])}</context></term>")
-            term_base_xml.append("</term_base>")
-            combined_texts += "\n\nTerm Base References:\n" + "\n".join(term_base_xml)
-            
-        return combined_texts
-
-    def _create_translation_prompt(self, combined_texts: str, target_lang: str, source_lang: str) -> str:
+    def _create_translation_prompt(self, combined_texts: str, target_lang: str, source_lang: str, term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
         """Create the translation prompt with all necessary instructions.
         
         Args:
             combined_texts: Prepared texts with contexts
             target_lang: Target language code
             source_lang: Source language code
+            term_base: Optional term base dictionary
             
         Returns:
             Complete prompt string
         """
-        return f"""You are a world-class expert in translating to {target_lang}, 
+        prompt = f"""You are a world-class expert in translating to {target_lang}, 
 specialized for casual mobile games. Your task is to provide accurate and culturally appropriate translations while learning from any previous translation attempts.
 
+"""
+        # Add term base at the beginning if available
+        if term_base:
+            prompt += "Term Base References (use these translations consistently):\n"
+            prompt += json.dumps(term_base, indent=2, ensure_ascii=False)
+            prompt += "\n\n"
+
+        prompt += f"""Texts to Translate:
 {combined_texts}
 
 Translation Rules:
@@ -553,7 +546,7 @@ When you see <FAILED_TRANSLATION> tags in the context:
 
 Term Base Management:
 Identify any important unique terms in the source text that should be added to the term base:
-- Only suggest game-specific terms or terms requiring consistent translation
+- Only suggest game-specific names requiring consistent translation
 - Don't suggest common language words/phrases
 - Don't suggest terms already in the term base
 - Don't suggest special terms matching non-translatable patterns
@@ -563,6 +556,7 @@ For each suggested term, provide:
   * A brief comment explaining its usage/context in the source language ({source_lang})
 
 Return translations and term suggestions in a structured JSON format."""
+        return prompt
 
     def _get_translation_schema(self) -> Dict[str, Any]:
         """Get the schema for translation response validation.
@@ -629,8 +623,8 @@ Return translations and term suggestions in a structured JSON format."""
             Dictionary containing translations and term suggestions
         """
         # Prepare texts and create prompt
-        combined_texts = self._prepare_texts_with_contexts(source_texts, contexts, issues, term_base)
-        prompt = self._create_translation_prompt(combined_texts, target_lang, source_lang)
+        combined_texts = self._prepare_texts_with_contexts(source_texts, contexts, issues)
+        prompt = self._create_translation_prompt(combined_texts, target_lang, source_lang, term_base)
         
         # Get translation schema and generate completion
         translation_schema = self._get_translation_schema()
@@ -711,11 +705,6 @@ Return translations and term suggestions in a structured JSON format."""
                     'context': contexts[i],
                     'previous_issues': previous_issues[i]
                 }
-                
-                # Add term base if available
-                if term_base:
-                    validation_item['term_base'] = term_base
-                
                 llm_validation_items.append(validation_item)
                 llm_validation_indexes.append(i)
             
@@ -724,7 +713,7 @@ Return translations and term suggestions in a structured JSON format."""
         
         # Perform batch LLM validation if needed
         if llm_validation_items:
-            llm_results = await self.qa_handler.validate_with_llm_batch(llm_validation_items, target_lang)
+            llm_results = await self.qa_handler.validate_with_llm_batch(llm_validation_items, target_lang, term_base)
 
             # Update results with LLM validation issues
             for batch_idx, result_idx in enumerate(llm_validation_indexes):
