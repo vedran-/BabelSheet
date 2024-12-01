@@ -251,14 +251,7 @@ def init(ctx):
 
 def main():
     """Entry point for the CLI."""
-    try:
-        cli(obj={})
-    except KeyboardInterrupt:
-        print("\nProcess interrupted by user. Exiting gracefully...")
-        sys.exit(0)
-    except Exception as e:
-        print(f"An unexpected error occurred: {str(e)}")
-        sys.exit(1)
+    cli(obj={})
 
 if __name__ == '__main__':
     main() 

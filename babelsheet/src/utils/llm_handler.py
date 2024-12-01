@@ -231,6 +231,8 @@ class LLMHandler:
                         in_string = not in_string
                     escape_next = char == '\\' and not escape_next
 
-            return json.loads(content)
+            ret = json.loads(content)
+            return ret
+        
         except (KeyError, IndexError, json.JSONDecodeError) as e:
             raise ValueError(f"Failed to extract structured response: {e}")

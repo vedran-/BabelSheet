@@ -659,6 +659,8 @@ Return translations and term suggestions in a structured JSON format."""
         # Process response
         result = self.llm_handler.extract_structured_response(response)
         translations = result.get("translations", [])
+        if len(translations) == 0:  # Fallback for LLMs that don't return translations in the expected format
+            translations = result.get("properties", []).get("translations", [])
         
         # Critical check: number of translations must match number of source texts
         if len(translations) != len(source_texts):
@@ -666,7 +668,7 @@ Return translations and term suggestions in a structured JSON format."""
             self.logger.critical("This indicates a fundamental problem with LLM response handling")
             self.logger.critical(f"Source texts: {source_texts}")
             self.logger.critical(f"Translations: {translations}")
-            os._exit(1)  # Force exit the application
+            raise Exception(f"Number of translations ({len(translations)}) does not match number of source texts ({len(source_texts)})")
             
         return result
 
