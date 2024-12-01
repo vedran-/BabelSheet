@@ -121,7 +121,7 @@ class SheetsHandler:
                     for cell_ref, cell in updates.items():
                         cell.is_synced = True
 
-                    logger.info(f"[SYNC] Successfully synced {result['totalUpdatedCells']} cells in {sheet_name}: {updates}")
+                    logger.info(f"[SYNC] Synced {result['totalUpdatedCells']} cells in {sheet_name}: {updates}")
                 else:
                     logger.critical(f"[SYNC] Update completed but no cell count returned for {sheet_name}")
                     

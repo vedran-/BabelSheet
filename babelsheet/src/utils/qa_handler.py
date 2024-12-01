@@ -91,11 +91,58 @@ class QAHandler:
         """Check format consistency between source and translation."""
         issues = []
         
-        # Check case consistency for all-caps words
-        source_caps = re.findall(r'\b[A-Z]{2,}\b', source)
-        for word in source_caps:
-            if word in source and not any(word in t for t in re.findall(r'\b[A-Z]{2,}\b', translation)):
-                issues.append(f"Capitalization mismatch for term: {word} between source ({source}) and translation ({translation})")
+        def get_capitalization_stats(text: str) -> dict:
+            """Get statistics about capitalization patterns in text."""
+            words = text.split()
+            stats = {
+                'all_caps': [],
+                'title_case': [],
+                'sentence_starts': []
+            }
+            
+            for i, word in enumerate(words):
+                # Skip words without letters or single-letter words
+                if len(word) <= 1 or not any(c.isalpha() for c in word):
+                    continue
+                    
+                # Track ALL CAPS words (excluding common abbreviations)
+                if word.isupper() and len(word) > 2:
+                    stats['all_caps'].append(word)
+                # Track Title Case words (excluding sentence starts)
+                elif word[0].isupper() and not word.isupper():
+                    # Check if it's sentence start
+                    is_sentence_start = False
+                    if i == 0:
+                        is_sentence_start = True
+                    elif i > 0 and words[i-1][-1] in '.!?':
+                        is_sentence_start = True
+                        
+                    if is_sentence_start:
+                        stats['sentence_starts'].append(word)
+                    else:
+                        stats['title_case'].append(word)
+                        
+            return stats
+        
+        # Get capitalization statistics for both texts
+        source_stats = get_capitalization_stats(source)
+        trans_stats = get_capitalization_stats(translation)
+        
+        # Compare ALL CAPS words count
+        if len(source_stats['all_caps']) != len(trans_stats['all_caps']):
+            issues.append(
+                f"Capitalization pattern mismatch: source has {len(source_stats['all_caps'])} ALL CAPS word(s) "
+                f"({', '.join(source_stats['all_caps'])}) but translation has {len(trans_stats['all_caps'])} "
+                f"({', '.join(trans_stats['all_caps'])})"
+            )
+        
+        # Compare Title Case words (excluding sentence starts)
+        if len(source_stats['title_case']) != len(trans_stats['title_case']):
+            issues.append(
+                f"Capitalization pattern mismatch: source has {len(source_stats['title_case'])} Title Case word(s) "
+                f"({', '.join(source_stats['title_case'])}) but translation has {len(trans_stats['title_case'])} "
+                f"({', '.join(trans_stats['title_case'])})"
+            )
         
         # Check newline preservation
         if source.count('\\n') != translation.count('\\n'):
