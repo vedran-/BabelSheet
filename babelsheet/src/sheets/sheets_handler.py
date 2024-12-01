@@ -91,7 +91,7 @@ class SheetsHandler:
         for sheet_name, sheet_data in self._sheets.items():
             updates = self.get_unsynced_cells(sheet_data)
             if not updates:
-                logger.debug(f"No changes to sync for sheet: {sheet_name}")
+                #logger.debug(f"No changes to sync for sheet: {sheet_name}")
                 continue
                 
             logger.debug(f"Syncing {len(updates)} changes in sheet `{sheet_name}`: {updates}")

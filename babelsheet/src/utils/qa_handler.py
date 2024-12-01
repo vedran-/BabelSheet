@@ -55,7 +55,7 @@ class QAHandler:
             # Basic format validation
             format_issues = self._validate_format(source_text, translated_text)
             if format_issues:
-                self.logger.warning(f"Found format issues: {format_issues}")
+                self.logger.debug(f"Found format issues: {format_issues}")
                 issues.extend(format_issues)
             
             # Markup preservation check

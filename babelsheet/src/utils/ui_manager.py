@@ -375,6 +375,10 @@ class SimpleUIManager:
             error: Error message if any
             entry_type: Type of entry ("translation" or "term_base")
         """
+
+        if status == "⏳":  # Skip in-progress entries
+            return
+
         # Create colored text for translation and error
         output = Text()
         

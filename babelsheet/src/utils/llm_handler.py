@@ -154,7 +154,23 @@ class LLMHandler:
 
             # Try to extract JSON from content if it starts with '{'
             if content.startswith('{'):
-                content = content[:content.rfind('}') + 1]
+                # Find first complete JSON object by matching braces
+                brace_count = 0
+                in_string = False
+                escape_next = False
+                
+                for i, char in enumerate(content):
+                    if not in_string:
+                        if char == '{':
+                            brace_count += 1
+                        elif char == '}':
+                            brace_count -= 1
+                            if brace_count == 0:
+                                content = content[:i+1]
+                                break
+                    if char == '"' and not escape_next:
+                        in_string = not in_string
+                    escape_next = char == '\\' and not escape_next
 
             return json.loads(content)
         except (KeyError, IndexError, json.JSONDecodeError) as e:

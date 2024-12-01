@@ -186,10 +186,10 @@ class TranslationManager:
                 failed_items_text += f"Sheet: {item['sheet_name']}\n"
                 failed_items_text += f"Language: {item['lang']}\n"
                 failed_items_text += f"Source text: {item['source_text']}\n"
-                failed_items_text += f"Last attempt: [red]{item['last_translation']}[/red]\n"
+                failed_items_text += f"Last attempt: {item['last_translation']}\n"
                 failed_items_text += "Issues:\n"
                 for issue in item['issues']:
-                    failed_items_text += f"  - [red]{issue}[/red]\n"
+                    failed_items_text += f"  - {issue}\n"
                 failed_items_text += "-" * 40 + "\n"
             self.ui.info(failed_items_text)
 
@@ -357,7 +357,7 @@ class TranslationManager:
         source_lang = self.config['languages']['source']
         
         self.ui.start()
-        self.ui.info(f"Starting batch translation for {len(missing_translations)} languages ({total_items} items total)")
+        self.ui.debug(f"Starting batch translation for {len(missing_translations)} languages ({total_items} items total)")
 
         last_lang = None
         async def check_language_change(lang: str) -> None:
@@ -366,7 +366,7 @@ class TranslationManager:
                 return
             
             last_lang = lang
-            self.ui.info(f"Processing language {lang} ({len(missing_translations[lang])} items)")
+            self.ui.debug(f"Processing language {lang} ({len(missing_translations[lang])} items)")
 
             # Ensure term base translations are up to date if we have a term base
             if self.term_base_handler and use_term_base:
@@ -414,7 +414,7 @@ class TranslationManager:
                     sheet_name = missing_item['sheet_name']
                     
                     if issues:
-                        self.ui.warning(f"Translation '{translation}' has issues for {lang}: {issues}")
+                        self.ui.debug(f"Translation '{translation}' has issues for {lang}: {issues}")
                         all_issues = missing_item.get('last_issues', []) + [{
                             'translation': translation,
                             'issues': issues,
@@ -471,7 +471,7 @@ class TranslationManager:
         finally:
             self.ui.stop()
 
-    def _prepare_texts_with_contexts(self, source_texts: List[str], contexts: List[Dict[str, Any]], issues: List[Dict[str, Any]], term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
+    def _prepare_texts_with_contexts(self, source_texts: List[str], contexts: List[Dict[str, Any]], issues: List[Dict[str, Any]], term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> Tuple[str, List[Dict[str, List[str]]]]:
         """Prepare texts with their contexts for translation.
         
         Args:
@@ -481,24 +481,34 @@ class TranslationManager:
             term_base: Optional term base dictionary
             
         Returns:
-            Combined texts with contexts as a string
+            Tuple of (combined texts with contexts as string, list of non-translatable terms per text)
         """
         texts_with_contexts = []
+        non_translatable_terms = []
+        
         for i, (text, context_dict, issue_list) in enumerate(zip(source_texts, contexts, issues)):
+            # Extract non-translatable terms for this text
+            text_terms = self.qa_handler._extract_non_translatable_terms(text)
+            non_translatable_terms.append({"text_id": i + 1, "terms": text_terms})
+            
+            # Prepare context
             exc = []
-            # Add context from dictionary
             for key, value in context_dict.items():
                 if value:  # Only add non-empty context
                     exc.append(f"<{self.escape(key)}>{self.escape(str(value))}</{self.escape(key)}>")
+            
             # Add issues
             for issue in issue_list:
                 exc.append(f"<FAILED_TRANSLATION>'{self.escape(issue['translation'])}' error: {self.escape(issue['issues'])}</FAILED_TRANSLATION>")
+            
             expanded_context = "".join(exc)
             texts_with_contexts.append(f"<text id='{i+1}'>{text}</text>\n<context id='{i+1}'>{expanded_context}</context>")
         
-        return "\n\n".join(texts_with_contexts)
+        return "\n\n".join(texts_with_contexts), non_translatable_terms
 
-    def _create_translation_prompt(self, combined_texts: str, target_lang: str, source_lang: str, term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
+    def _create_translation_prompt(self, combined_texts: str, target_lang: str, source_lang: str, 
+                                 term_base: Optional[Dict[str, Dict[str, Any]]] = None,
+                                 non_translatable_terms: Optional[List[Dict[str, List[str]]]] = None) -> str:
         """Create the translation prompt with all necessary instructions.
         
         Args:
@@ -506,6 +516,7 @@ class TranslationManager:
             target_lang: Target language code
             source_lang: Source language code
             term_base: Optional term base dictionary
+            non_translatable_terms: Optional list of non-translatable terms per text
             
         Returns:
             Complete prompt string
@@ -517,14 +528,24 @@ specialized for casual mobile games. Your task is to provide accurate and cultur
         # Add term base at the beginning if available
         if term_base:
             prompt += "Term Base References (use these translations consistently):\n"
-            prompt += str(json.dumps(term_base, indent=2, ensure_ascii=False))
+            prompt += json.dumps(term_base, indent=2, ensure_ascii=False)
             prompt += "\n\n"
+
+        # Add non-translatable terms if available
+        if non_translatable_terms and any(item["terms"] for item in non_translatable_terms):
+            prompt += "Non-translatable Terms (must be preserved exactly as is):\n"
+            for item in non_translatable_terms:
+                if item["terms"]:
+                    terms_str = ", ".join(f"'{term}'" for term in item["terms"])
+                    prompt += f"Text #{item['text_id']}: {terms_str}\n"
+            prompt += "\n"
 
         prompt += f"""Texts to Translate:
 {combined_texts}
 
 Translation Rules:
 - Use provided term base for consistency
+- Preserve all non-translatable terms exactly as listed above
 - Don't translate special terms which match the following patterns: {str(self.config['qa']['non_translatable_patterns'])}
 - Keep appropriate format (uppercase/lowercase)
 - Replace newlines with \\n
@@ -573,12 +594,16 @@ Return translations and term suggestions in a structured JSON format."""
                     "items": {
                         "type": "object",
                         "properties": {
+                            "text_id": {
+                                "type": "integer",
+                                "description": "The ID of the text being translated (as shown in the prompt)"
+                            },
                             "translation": {
                                 "type": "string",
                                 "description": "The translated text"
                             }
                         },
-                        "required": ["translation"]
+                        "required": ["text_id", "translation"]
                     }
                 },
                 "term_suggestions": {
@@ -596,7 +621,7 @@ Return translations and term suggestions in a structured JSON format."""
                             },
                             "comment": {
                                 "type": "string",
-                                "description": f"Brief explanation of term usage/context"
+                                "description": "Brief explanation of term usage/context"
                             }
                         },
                         "required": ["source_term", "suggested_translation", "comment"]
@@ -624,21 +649,32 @@ Return translations and term suggestions in a structured JSON format."""
             Dictionary containing translations and term suggestions
         """
         # Prepare texts and create prompt
-        combined_texts = self._prepare_texts_with_contexts(source_texts, contexts, issues)
-        prompt = self._create_translation_prompt(combined_texts, target_lang, source_lang, term_base)
+        combined_texts, non_translatable_terms = self._prepare_texts_with_contexts(source_texts, contexts, issues)
+        prompt = self._create_translation_prompt(combined_texts, target_lang, source_lang, term_base, non_translatable_terms)
         
         # Get translation schema and generate completion
         translation_schema = self._get_translation_schema()
         response = await self.llm_handler.generate_completion(
             messages=[
-                {"role": "system", "content": f"You are a world-class expert in translating to {target_lang}."},
+                {"role": "system", "content": f"You are a world-class expert in translating to {target_lang}. You must provide translations for ALL texts in the input."},
                 {"role": "user", "content": prompt}
             ],
             json_schema=translation_schema
         )
         
         # Process response
-        return self.llm_handler.extract_structured_response(response)
+        result = self.llm_handler.extract_structured_response(response)
+        translations = result.get("translations", [])
+        
+        # Critical check: number of translations must match number of source texts
+        if len(translations) != len(source_texts):
+            self.logger.critical(f"CRITICAL ERROR: Number of translations ({len(translations)}) does not match number of source texts ({len(source_texts)})")
+            self.logger.critical("This indicates a fundamental problem with LLM response handling")
+            self.logger.critical(f"Source texts: {source_texts}")
+            self.logger.critical(f"Translations: {translations}")
+            os._exit(1)  # Force exit the application
+            
+        return result
 
     async def _handle_term_suggestions(self, term_suggestions: List[Dict[str, str]], target_lang: str) -> None:
         """Handle term suggestions by adding them to the term base.
