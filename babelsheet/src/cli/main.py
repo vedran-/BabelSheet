@@ -225,7 +225,7 @@ async def translate(ctx, target_langs, verbose):
     )
 
     logger.debug("Translation completed")
-    translation_manager.llm_handler.print_token_usage()
+    translation_manager.llm_handler.print_usage_stats()
 
 @cli.command()
 @click.pass_context

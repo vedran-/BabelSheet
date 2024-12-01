@@ -9,16 +9,19 @@ from rich.text import Text
 from collections import deque
 from datetime import datetime
 import logging
+from .llm_handler import LLMHandler
 
 class UIManager:
-    def __init__(self, max_history: int = 100, status_lines: int = 6):
+    def __init__(self, max_history: int = 100, status_lines: int = 6, llm_handler: LLMHandler = None):
         """Initialize UI Manager.
         
         Args:
             max_history: Maximum number of translation entries to keep in history
             status_lines: Number of status lines to show at the bottom
+            llm_handler: LLMHandler instance
         """
         self.console = Console()
+        self.llm_handler = llm_handler
         self.translation_history = deque(maxlen=max_history)
         self.status_messages = deque(maxlen=status_lines)
         self.live: Optional[Live] = None
@@ -245,7 +248,7 @@ class UIManager:
             
         self.add_translation_entry(source, lang, status, translation, error)
         
-    def start_new_batch(self):
+    def start_new_batch(self, llm_handler):
         """Move current batch to history and start a new one."""
         self.translation_history.extend(self._current_batch)
         self._current_batch = []
@@ -322,15 +325,17 @@ class UIManager:
 class SimpleUIManager:
     """A simpler UI manager that uses standard logging output."""
     
-    def __init__(self, max_history: int = 100, status_lines: int = 6):
+    def __init__(self, max_history: int = 100, status_lines: int = 6, llm_handler: LLMHandler = None):
         """Initialize Simple UI Manager.
         
         Args:
             max_history: Not used in simple mode
             status_lines: Not used in simple mode
+            llm_handler: LLMHandler instance
         """
         self.logger = logging.getLogger(__name__)
         self.console = Console()  # For colored output
+        self.llm_handler = llm_handler
         
         # Add overall statistics tracking
         self.overall_stats = {
@@ -353,7 +358,13 @@ class SimpleUIManager:
         self.console.print(f"Total Translation Attempts: {total}", style="cyan")
         self.console.print(f"Successful Translations: {self.overall_stats['successful']} ({success_rate:.1f}%)", style="cyan")
         self.console.print(f"Failed Translations: {self.overall_stats['failed']} ({fail_rate:.1f}%)", style="cyan")
-        self.console.print("─" * 40, style="dim")
+
+        if self.llm_handler:
+            usage_stats = self.llm_handler.get_usage_stats()
+            self.console.print(f"\nLLM Usage Statistics", style="green bold")
+            self.console.print("─" * 40, style="dim")
+            self.console.print(f"Total tokens used: {usage_stats['total_tokens']} ({usage_stats['prompt_tokens']} prompt + {usage_stats['completion_tokens']} completion)", style="cyan")
+            self.console.print(f"Total cost: ${usage_stats['total_cost']:.4f}", style="cyan")
         
     def start(self):
         """Start logging - no-op in simple mode."""
@@ -481,7 +492,7 @@ class SimpleUIManager:
                 
         self.add_translation_entry(term, lang, status, translation_text, entry_type="term_base")
 
-def create_ui_manager(config: Dict[str, Any], max_history: int = 100, status_lines: int = 6) -> UIManager:
+def create_ui_manager(config: Dict[str, Any], llm_handler: LLMHandler, max_history: int = 100, status_lines: int = 6) -> UIManager:
     """Create the appropriate UI manager based on configuration.
     
     Args:
@@ -494,5 +505,5 @@ def create_ui_manager(config: Dict[str, Any], max_history: int = 100, status_lin
     """
     use_simple_output = config.get('ui', {}).get('simple_output', False)
     if use_simple_output:
-        return SimpleUIManager(max_history, status_lines)
-    return UIManager(max_history, status_lines)
+        return SimpleUIManager(max_history, status_lines, llm_handler)
+    return UIManager(max_history, status_lines, llm_handler)

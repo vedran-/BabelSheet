@@ -135,6 +135,7 @@ Place the downloaded credentials.json file in the config directory.
 ## LLM Compatibility
 
 BabelSheet uses LiteLLM to support various LLM providers. Configure your provider in `config.yaml`:
+Check [LiteLLM](https://docs.litellm.ai/docs/providers) for supported providers.
 
 ### Local LLMs
 
@@ -144,7 +145,7 @@ NOTE: Local LLMs are not recommended for production use, as they may not match t
 ```yaml
 llm:
   api_key: "not-needed"
-  model: "local/model-name"   # The model name doesn't matter, it's selected in LM Studio
+  model: "lm_studio/model-name"   # The model name doesn't matter, it's selected in LM Studio
 ```
 
 2. **Ollama**:

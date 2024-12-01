@@ -46,7 +46,7 @@ class TranslationManager:
         self.retry_delay = llm_config.get('retry_delay', 1)  # seconds
         
         # Initialize UI Manager
-        self.ui = create_ui_manager(config)
+        self.ui = create_ui_manager(config, self.llm_handler)
         
         # Initialize statistics
         self.stats = {

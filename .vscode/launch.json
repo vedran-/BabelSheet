@@ -7,16 +7,15 @@
             "request": "launch",
             "module": "babelsheet",
             "console": "integratedTerminal",
-            "justMyCode": false,
+            "justMyCode": true,
             "env": {
                 "PYTHONPATH": "${workspaceFolder}",
-                "LOG_LEVEL": "DEBUG"
+                "LOG_LEVEL": "ERROR"
             },
             "args": [
                 "translate",
                 "--target-langs",
-                "es,fr",
-                "-vv"
+                "es,fr"
             ]
         },
         {

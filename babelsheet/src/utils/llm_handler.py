@@ -1,14 +1,38 @@
 from typing import Dict, Any, Optional
 import json
 import os
-from litellm import acompletion
+
+import litellm
+os.environ["LITELLM_LOG"] = "ERROR"
+
+# Disable all LiteLLM logging
+#import logging
+#logging.getLogger("litellm").setLevel(logging.ERROR)
+#logging.getLogger("litellm.llm_provider").setLevel(logging.ERROR)
+#logging.getLogger("litellm.utils").setLevel(logging.ERROR)
+#logging.getLogger("openai").setLevel(logging.ERROR)
+
+# Now import litellm
+from litellm import acompletion, completion_cost
+
+# Additional verbosity controls
+#litellm.verbose = False
+litellm.set_verbose=False
+litellm.log_raw_request_response=False
+litellm.success_callback = [] 
+
+def my_custom_logging_fn(model_call_dict):
+    #print(f"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXX XXXXXXXXXXX\nXXXXXXXXXXX XXXXXXXXXX XXXXXXXX\nXXXXXXXXXX\nXXXXXXXXXX\nmodel call details: {model_call_dict}")
+    pass
+
 
 class LLMHandler:
-    # Class-level variables to track tokens across all instances
+    # Class-level variables to track tokens and costs across all instances
     total_prompt_tokens = 0
     total_completion_tokens = 0
+    total_cost = 0.0
     
-    def __init__(self, api_key: str, model: str = "anthropic/claude-3-sonnet", 
+    def __init__(self, api_key: str, model: str = "anthropic/claude-3-5-sonnet", 
                  temperature: float = 0.3, config: Optional[Dict[str, bool]] = None):
         """Initialize the LLM Handler.
         
@@ -38,29 +62,31 @@ class LLMHandler:
             os.environ["AZURE_API_KEY"] = api_key
             if "/" not in model:
                 raise ValueError("Azure model should be in format 'azure/deployment_name/model_name'")
-        elif provider == 'local':  # LM Studio
+        elif provider == 'lm_studio':  # LM Studio
             os.environ["OPENAI_API_KEY"] = "not-needed"
             os.environ["OPENAI_API_BASE"] = "http://localhost:1234/v1"
         elif provider == 'ollama':
             os.environ["OPENAI_API_KEY"] = "not-needed"
             os.environ["OPENAI_API_BASE"] = "http://localhost:11434/v1"
-        else:  # Default to OpenAI
+        elif api_key:  # Default to OpenAI
             os.environ["OPENAI_API_KEY"] = api_key
 
     @classmethod
-    def get_token_usage(cls) -> Dict[str, int]:
-        """Get the total token usage."""
+    def get_usage_stats(cls) -> Dict[str, Any]:
+        """Get the total token usage and cost statistics."""
         return {
             "prompt_tokens": cls.total_prompt_tokens,
             "completion_tokens": cls.total_completion_tokens,
-            "total_tokens": cls.total_prompt_tokens + cls.total_completion_tokens
+            "total_tokens": cls.total_prompt_tokens + cls.total_completion_tokens,
+            "total_cost": cls.total_cost
         }
 
     @classmethod
-    def print_token_usage(cls) -> None:
-        """Print the total token usage statistics."""
-        usage = cls.get_token_usage()
+    def print_usage_stats(cls) -> None:
+        """Print the total token usage and cost statistics."""
+        usage = cls.get_usage_stats()
         print(f">>> Token Usage: {usage['prompt_tokens']} (prompt) + {usage['completion_tokens']} (completion) = {usage['total_tokens']} (total)")
+        print(f">>> Total Cost: ${usage['total_cost']}")
 
     def dump_json_to_file(self, data: Dict[str, Any], filename: str) -> None:
         json_str = json.dumps(data, indent=2, ensure_ascii=False)
@@ -121,7 +147,21 @@ class LLMHandler:
 
         try:
             # Use LiteLLM's async completion function
-            response = await acompletion(**data)
+            response = await acompletion(**data, logger_fn=my_custom_logging_fn, log_raw_request_response=False, success_callback=[])
+            
+            # Calculate cost
+            try:
+                cost = completion_cost(
+                    model=self.model,
+                    messages=messages,
+                    completion=response.choices[0].message.content
+                )
+            except Exception as e:
+                # If cost calculation fails (e.g., for local models), default to 0
+                print(f"Cost calculation failed for model {self.model}, will use price of 0.0")
+                cost = 0.0
+                
+            LLMHandler.total_cost += cost
             
             # Update token counters
             if response.usage:
@@ -129,22 +169,23 @@ class LLMHandler:
                 LLMHandler.total_completion_tokens += response.usage.completion_tokens
 
             if self.config["save_responses"]:
-                filename = f"llm_{timestamp}_response.json"
-                # Convert response to dict for JSON serialization
-                response_dict = {
+                # Convert to serializable format only for saving
+                ret = {
                     "choices": [{
                         "message": {
-                            "role": response.choices[0].message.role,
+                            "role": "assistant",
                             "content": response.choices[0].message.content
                         }
                     }],
                     "usage": {
-                        "prompt_tokens": response.usage.prompt_tokens,
-                        "completion_tokens": response.usage.completion_tokens,
-                        "total_tokens": response.usage.total_tokens
-                    } if response.usage else None
+                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                        "total_tokens": (response.usage.prompt_tokens + response.usage.completion_tokens) if response.usage else 0
+                    },
+                    "cost": round(cost, 4)
                 }
-                self.dump_json_to_file(response_dict, filename)
+                filename = f"llm_{timestamp}_response.json"
+                self.dump_json_to_file(ret, filename)
 
             return response
 
