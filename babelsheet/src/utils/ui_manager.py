@@ -344,7 +344,7 @@ class SimpleUIManager:
             'failed': 0
         }
         
-    def _print_overall_stats(self):
+    def print_overall_stats(self):
         """Print overall statistics."""
         total = self.overall_stats['total_attempts']
         if total > 0:
@@ -440,7 +440,7 @@ class SimpleUIManager:
         
     def start_new_batch(self):
         """Start a new batch - prints a separator and overall stats in simple mode."""
-        self._print_overall_stats()
+        self.print_overall_stats()
         self.console.print("─" * 80, style="dim")
         
     def add_status(self, message: str, level: str = "info"):

@@ -211,12 +211,15 @@ class TranslationManager:
         Returns:
             Dictionary mapping language codes to missing translations
         """
-        missing_translations = {}
-        source_lang_idx = self.sheets_handler.get_column_indexes(df, [source_lang])[0]
+        source_lang_indexes = self.sheets_handler.get_column_indexes(df, [source_lang])
+        if not source_lang_indexes:
+            return {}
+        source_lang_idx = source_lang_indexes[0]
         target_langs_idx = self.sheets_handler.get_column_indexes(df, target_langs, create_if_missing=True)
         rows_count = df.shape[0]
 
         # Check each target language
+        missing_translations = {}
         for i in range(len(target_langs)):
             lang = target_langs[i]
             lang_idx = target_langs_idx[i]
@@ -233,7 +236,7 @@ class TranslationManager:
                     continue
 
                 target_cell = df.iloc[row_idx][lang_idx]
-                logger.debug(f"Checking row {row_idx} for language {lang}: {source_cell.value} -> {target_cell}")
+                #logger.debug(f"Checking row {row_idx} for language {lang}: {source_cell.value} -> {target_cell}")
                 # Check if translation is missing or empty
                 if target_cell is None or target_cell.is_empty():
                     if pd.isna(target_cell):

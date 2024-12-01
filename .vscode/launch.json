@@ -10,12 +10,13 @@
             "justMyCode": true,
             "env": {
                 "PYTHONPATH": "${workspaceFolder}",
-                "LOG_LEVEL": "ERROR"
+                "LOG_LEVEL": "DEBUG"
             },
             "args": [
                 "translate",
                 "--target-langs",
-                "es,fr"
+                "es,fr",
+                "-v"
             ]
         },
         {

@@ -148,6 +148,7 @@ def cli(ctx, config):
 )
 @click.option(
     '--simple-output',
+    '-so',
     is_flag=True,
     help='Use simple console output instead of fancy UI'
 )
@@ -177,55 +178,64 @@ def translate_command(ctx, target_langs, sheet_id, verbose, simple_output):
 
 async def translate(ctx, target_langs, verbose):
     """Translate missing entries in the specified Google Sheet."""
-    logger = logging.getLogger(__name__)
-    
-    # Split target languages if provided as comma-separated string
-    ctx.config = ctx.obj['config']
-    ctx.source_lang = ctx.config['languages']['source']
-    ctx.target_langs = [lang.strip() for lang in target_langs.split(',')]
-    
-    # Initialize SheetsHandler
-    creds = get_credentials()
-    ctx.spreadsheet_id = ctx.config['google_sheets']['spreadsheet_id']
-    ctx.sheets_handler = SheetsHandler(ctx, creds)
+    try:
+        logger = logging.getLogger(__name__)
+        
+        # Split target languages if provided as comma-separated string
+        ctx.config = ctx.obj['config']
+        ctx.source_lang = ctx.config['languages']['source']
+        ctx.target_langs = [lang.strip() for lang in target_langs.split(',')]
+        
+        # Initialize SheetsHandler
+        creds = get_credentials()
+        ctx.spreadsheet_id = ctx.config['google_sheets']['spreadsheet_id']
+        ctx.sheets_handler = SheetsHandler(ctx, creds)
 
-    # Initialize TermBaseHandler
-    ctx.term_base_handler = TermBaseHandler(ctx)
-    logger.debug(f"Successfully initialized Term Base handler with sheet: {ctx.term_base_handler.sheet_name}")
+        # Initialize TermBaseHandler
+        ctx.term_base_handler = TermBaseHandler(ctx)
+        logger.debug(f"Successfully initialized Term Base handler with sheet: {ctx.term_base_handler.sheet_name}")
 
-    """
-    #terms = ctx.term_base_handler.get_terms_for_language(ctx.target_langs[0])
-    #logger.info(terms)
+        """
+        #terms = ctx.term_base_handler.get_terms_for_language(ctx.target_langs[0])
+        #logger.info(terms)
 
-    print('----------------')
-    print(ctx.sheets_handler.get_sheet_data('Sheet1'))
-    ctx.sheets_handler.modify_cell_data('Sheet1', 1, 3, 'test')
-    print('----------------')
-    print(ctx.sheets_handler.get_sheet_data('Sheet1'))
-    ctx.sheets_handler.modify_cell_data('Sheet1', 2, 3, 'test2')
-    print('----------------')
-    print(ctx.sheets_handler.get_sheet_data('Sheet1'))
-    print('----------------')
-    ctx.sheets_handler.save_changes()
-    sys.exit()
-    """
+        print('----------------')
+        print(ctx.sheets_handler.get_sheet_data('Sheet1'))
+        ctx.sheets_handler.modify_cell_data('Sheet1', 1, 3, 'test')
+        print('----------------')
+        print(ctx.sheets_handler.get_sheet_data('Sheet1'))
+        ctx.sheets_handler.modify_cell_data('Sheet1', 2, 3, 'test2')
+        print('----------------')
+        print(ctx.sheets_handler.get_sheet_data('Sheet1'))
+        print('----------------')
+        ctx.sheets_handler.save_changes()
+        sys.exit()
+        """
 
-    # Initialize TranslationManager with the config and handlers
-    translation_manager = TranslationManager(
-        config=ctx.config,
-        sheets_handler=ctx.sheets_handler,
-        term_base_handler=ctx.term_base_handler
-    )
+        # Initialize TranslationManager with the config and handlers
+        translation_manager = TranslationManager(
+            config=ctx.config,
+            sheets_handler=ctx.sheets_handler,
+            term_base_handler=ctx.term_base_handler
+        )
 
-    # Translate all sheets using the new language-based approach
-    await translation_manager.translate_all_sheets(
-        source_lang=ctx.source_lang,
-        target_langs=ctx.target_langs,
-        use_term_base=True
-    )
+        # Translate all sheets using the new language-based approach
+        await translation_manager.translate_all_sheets(
+            source_lang=ctx.source_lang,
+            target_langs=ctx.target_langs,
+            use_term_base=True
+        )
 
-    logger.debug("Translation completed")
-    translation_manager.llm_handler.print_usage_stats()
+        logger.debug("Translation completed")
+        translation_manager.llm_handler.print_usage_stats()
+    except KeyboardInterrupt:
+        print("\nProcess interrupted by user. Exiting gracefully...")
+        translation_manager.ui.print_overall_stats()
+
+    except Exception as e:
+        print(f"Translation failed: {str(e)}")
+        translation_manager.ui.print_overall_stats()
+        sys.exit(1)
 
 @cli.command()
 @click.pass_context
@@ -250,7 +260,14 @@ def init(ctx):
 
 def main():
     """Entry point for the CLI."""
-    cli(obj={})
+    try:
+        cli(obj={})
+    except KeyboardInterrupt:
+        print("\nProcess interrupted by user. Exiting gracefully...")
+        sys.exit(0)
+    except Exception as e:
+        print(f"An unexpected error occurred: {str(e)}")
+        sys.exit(1)
 
 if __name__ == '__main__':
     main() 
