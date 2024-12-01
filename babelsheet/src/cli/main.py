@@ -5,6 +5,7 @@ import yaml
 import os
 from typing import Dict, Any, List
 from ..utils.auth import get_credentials
+from ..utils.llm_handler import LLMHandler
 from ..sheets.sheets_handler import SheetsHandler
 from ..translation.translation_manager import TranslationManager
 from ..term_base.term_base_handler import TermBaseHandler
@@ -50,9 +51,6 @@ def validate_config(config):
         'qa': {
             'non_translatable_patterns': list,
             'max_length': (int, type(None))  # Optional
-        },
-        'ui': {
-            'simple_output': (bool, type(None))  # Optional
         }
     }
 
@@ -185,6 +183,15 @@ async def translate(ctx, target_langs, verbose):
     ctx.source_lang = ctx.config['languages']['source']
     ctx.target_langs = [lang.strip() for lang in target_langs.split(',')]
     
+    # Initialize LLM Handler
+    llm_config = ctx.config.get('llm', {})
+    ctx.llm_handler = LLMHandler(
+        api_key=llm_config.get('api_key'),
+        model=llm_config.get('model', 'anthropic/claude-3-5-sonnet'),
+        temperature=llm_config.get('temperature', 0.3),
+        config=llm_config
+    )
+
     # Initialize SheetsHandler
     creds = get_credentials()
     ctx.spreadsheet_id = ctx.config['google_sheets']['spreadsheet_id']
@@ -215,7 +222,8 @@ async def translate(ctx, target_langs, verbose):
     translation_manager = TranslationManager(
         config=ctx.config,
         sheets_handler=ctx.sheets_handler,
-        term_base_handler=ctx.term_base_handler
+        term_base_handler=ctx.term_base_handler,
+        llm_handler=ctx.llm_handler
     )
 
     # Translate all sheets using the new language-based approach

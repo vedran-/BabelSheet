@@ -15,6 +15,8 @@ setup(
         'pyyaml',
         'openai',
         'litellm',
+        'rich>=13.9.0',
+        'PyQt6>=6.6.1',
     ],
     entry_points={
         'console_scripts': [

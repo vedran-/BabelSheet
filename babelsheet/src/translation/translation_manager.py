@@ -9,44 +9,37 @@ from ..utils.ui_manager import create_ui_manager
 import asyncio
 import logging
 from datetime import datetime
-import os
 import pathlib
 
 logger = logging.getLogger(__name__)
 
 class TranslationManager:
-    def __init__(self, config: Dict, sheets_handler: SheetsHandler, term_base_handler: TermBaseHandler):
+    def __init__(self, config: Dict, sheets_handler: SheetsHandler, term_base_handler: TermBaseHandler,
+                 llm_handler: LLMHandler):
         """Initialize Translation Manager."""
         self.config = config
+        self.llm_handler = llm_handler
         self.logger = logging.getLogger(__name__)
-        llm_config = config.get('llm', {})
         
         self.sheets_handler = sheets_handler
         self.term_base_handler = term_base_handler
         
-        # Initialize LLM Handler with correct parameters from config
-        self.llm_handler = LLMHandler(
-            api_key=llm_config.get('api_key'),
-            model=llm_config.get('model', 'anthropic/claude-3-sonnet'),
-            temperature=llm_config.get('temperature', 0.3),
-            config=llm_config
-        )
-        
         # Initialize QA Handler
         self.qa_handler = QAHandler(
             max_length=config.get('max_length'),
-            llm_handler=self.llm_handler,
+            llm_handler=llm_handler,
             non_translatable_patterns=config.get('qa', {}).get('non_translatable_patterns', [])
         )
         
         # Get batch configuration
+        llm_config = config.get('llm', {})
         self.batch_size = llm_config.get('batch_size', 10)
         self.batch_delay = llm_config.get('batch_delay', 1)
         self.max_retries = llm_config.get('max_retries', 3)
         self.retry_delay = llm_config.get('retry_delay', 1)  # seconds
         
         # Initialize UI Manager
-        self.ui = create_ui_manager(config, self.llm_handler)
+        self.ui = create_ui_manager(config, llm_handler)
         
         # Initialize statistics
         self.stats = {
