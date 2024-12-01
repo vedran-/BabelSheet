@@ -27,8 +27,7 @@ class TranslationManager:
         # Initialize LLM Handler with correct parameters from config
         self.llm_handler = LLMHandler(
             api_key=llm_config.get('api_key'),
-            base_url=llm_config.get('api_url', "https://api.openai.com/v1"),
-            model=llm_config.get('model', 'o1-mini'),
+            model=llm_config.get('model', 'anthropic/claude-3-sonnet'),
             temperature=llm_config.get('temperature', 0.3),
             config=llm_config
         )

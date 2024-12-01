@@ -1,35 +1,51 @@
 from typing import Dict, Any, Optional
-import aiohttp
 import json
 import os
+from litellm import acompletion
 
 class LLMHandler:
     # Class-level variables to track tokens across all instances
     total_prompt_tokens = 0
     total_completion_tokens = 0
     
-    def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1",
-                 model: str = "claude-3-5-sonnet", temperature: float = 0.3,
-                 config: Optional[Dict[str, bool]] = None):
+    def __init__(self, api_key: str, model: str = "anthropic/claude-3-sonnet", 
+                 temperature: float = 0.3, config: Optional[Dict[str, bool]] = None):
         """Initialize the LLM Handler.
         
         Args:
             api_key: API key for the LLM service
-            base_url: Base URL for the API (default: OpenAI's URL)
-            model: Model to use for translations
+            model: Model to use for translations (with provider prefix)
             temperature: Temperature parameter for generation
             config: Configuration dictionary with keys:
                 - save_requests: Whether to save API requests to files
                 - save_responses: Whether to save API responses to files
         """
-        self.api_key = api_key
-        self.base_url = base_url.rstrip('/')  # Remove trailing slash if present
         self.model = model
         self.temperature = temperature
         self.config = config or {
             "save_requests": False,
             "save_responses": False
         }
+        
+        # Configure environment based on provider prefix
+        provider = model.split('/')[0] if '/' in model else 'openai'
+        
+        if provider == 'anthropic':
+            os.environ["ANTHROPIC_API_KEY"] = api_key
+            if not model.split('/')[-1].startswith("claude-"):
+                raise ValueError("Invalid model for Anthropic. Must start with 'claude-'")
+        elif provider == 'azure':
+            os.environ["AZURE_API_KEY"] = api_key
+            if "/" not in model:
+                raise ValueError("Azure model should be in format 'azure/deployment_name/model_name'")
+        elif provider == 'local':  # LM Studio
+            os.environ["OPENAI_API_KEY"] = "not-needed"
+            os.environ["OPENAI_API_BASE"] = "http://localhost:1234/v1"
+        elif provider == 'ollama':
+            os.environ["OPENAI_API_KEY"] = "not-needed"
+            os.environ["OPENAI_API_BASE"] = "http://localhost:11434/v1"
+        else:  # Default to OpenAI
+            os.environ["OPENAI_API_KEY"] = api_key
 
     @classmethod
     def get_token_usage(cls) -> Dict[str, int]:
@@ -66,11 +82,6 @@ class LLMHandler:
         Returns:
             Dict containing the API response
         """
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}"
-        }
-        
         data = {
             "model": self.model,
             "messages": messages,
@@ -89,49 +100,56 @@ class LLMHandler:
                     "content": json_requirement
                 })
             
-            # For newer models that support response_format
-            if self.model.startswith(("gpt-4-1106", "gpt-3.5-turbo-1106")):
-                data["response_format"] = {"type": "json_object"}
-            
-            # Add function calling as fallback for older models
-            else:
-                data["functions"] = [{
-                    "name": "process_response",
-                    "description": "Process the structured response",
-                    "parameters": json_schema
-                }]
-                data["function_call"] = {"name": "process_response"}
+            # Only add response_format and functions for supported models
+            if "openai" in self.model.lower():
+                if self.model.startswith(("gpt-4-1106", "gpt-3.5-turbo-1106", "gpt-4o", "o1")):
+                    data["response_format"] = {"type": "json_object"}
+                else:
+                    data["functions"] = [{
+                        "name": "process_response",
+                        "description": "Process the structured response",
+                        "parameters": json_schema
+                    }]
+                    data["function_call"] = {"name": "process_response"}
         
-        # Save request data to timestamped JSON file
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
+        # Save request data if configured
         if self.config["save_requests"]:
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"llm_{timestamp}_request.json"
             self.dump_json_to_file(data, filename)
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=data
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise Exception(f"LLM API call failed: {error_text}")
-                
-                ret = await response.json()
+        try:
+            # Use LiteLLM's async completion function
+            response = await acompletion(**data)
+            
+            # Update token counters
+            if response.usage:
+                LLMHandler.total_prompt_tokens += response.usage.prompt_tokens
+                LLMHandler.total_completion_tokens += response.usage.completion_tokens
 
-                # Update token counters if usage info is available
-                if "usage" in ret:
-                    LLMHandler.total_prompt_tokens += ret["usage"].get("prompt_tokens", 0)
-                    LLMHandler.total_completion_tokens += ret["usage"].get("completion_tokens", 0)
+            if self.config["save_responses"]:
+                filename = f"llm_{timestamp}_response.json"
+                # Convert response to dict for JSON serialization
+                response_dict = {
+                    "choices": [{
+                        "message": {
+                            "role": response.choices[0].message.role,
+                            "content": response.choices[0].message.content
+                        }
+                    }],
+                    "usage": {
+                        "prompt_tokens": response.usage.prompt_tokens,
+                        "completion_tokens": response.usage.completion_tokens,
+                        "total_tokens": response.usage.total_tokens
+                    } if response.usage else None
+                }
+                self.dump_json_to_file(response_dict, filename)
 
-                if self.config["save_responses"]:
-                    filename = f"llm_{timestamp}_response.json"
-                    self.dump_json_to_file(ret, filename)
+            return response
 
-                return ret
+        except Exception as e:
+            raise Exception(f"LLM API call failed: {str(e)}")
 
     def extract_structured_response(self, response: Dict[str, Any]) -> Any:
         """Extract and parse JSON response from the API response."""

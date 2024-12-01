@@ -40,7 +40,7 @@ def validate_config(config):
             'ignore_case': bool
         },
         'llm': {
-            'api_url': str,
+            'model': str,
             'temperature': (int, float),
             'batch_size': (int, type(None)),  # Optional
             #'batch_delay': (int, float, type(None)),  # Optional

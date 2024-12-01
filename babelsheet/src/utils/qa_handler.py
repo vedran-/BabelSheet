@@ -2,6 +2,7 @@ import re
 from typing import Dict, List, Tuple, Optional, Pattern, Any
 from .llm_handler import LLMHandler
 import logging
+import json
 
 class QAHandler:
     def __init__(self, max_length: Optional[int] = None, llm_handler: Optional[LLMHandler] = None, non_translatable_patterns: Optional[List[Dict[str, str]]] = None):
@@ -276,7 +277,25 @@ class QAHandler:
             json_schema=validation_schema
         )
 
-        result = self.llm_handler.extract_structured_response(response)
+        # Extract content from LiteLLM response
+        content = response.choices[0].message.content.strip()
+        
+        # Extract JSON block if present
+        json_block_start_idx = content.find("```json")
+        if json_block_start_idx != -1:
+            json_block_end_idx = content.rfind("```")
+            if json_block_end_idx != -1:
+                content = content[json_block_start_idx + len("```json"):json_block_end_idx]
+        
+        content = content.strip()
+        
+        # Parse JSON response
+        try:
+            result = json.loads(content)
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse LLM response as JSON: {e}")
+            return [[f"LLM validation failed: Invalid JSON response"]] * len(items)
+
         validations = result.get("validations", [])
         
         # Convert to list of issue lists, maintaining original order
