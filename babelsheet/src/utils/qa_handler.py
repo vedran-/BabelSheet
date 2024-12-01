@@ -90,58 +90,57 @@ class QAHandler:
     def _validate_format(self, source: str, translation: str) -> List[str]:
         """Check format consistency between source and translation."""
         issues = []
-        
-        def get_capitalization_stats(text: str) -> dict:
-            """Get statistics about capitalization patterns in text."""
-            words = text.split()
-            stats = {
-                'all_caps': [],
-                'title_case': [],
-                'sentence_starts': []
-            }
+
+        def get_caps_flags(text: str) -> tuple[bool, bool]:
+            """
+            Returns two flags for a text:
+            1. has_all_caps_word: True if text contains any word in ALL CAPS
+            2. is_all_words_caps: True if all words are in ALL CAPS
+            """
+            def clean_word(word: str) -> str:
+                """Extract only letter characters from a word."""
+                return ''.join(c for c in word if c.isalpha())
             
-            for i, word in enumerate(words):
-                # Skip words without letters or single-letter words
-                if len(word) <= 1 or not any(c.isalpha() for c in word):
-                    continue
-                    
-                # Track ALL CAPS words (excluding common abbreviations)
-                if word.isupper() and len(word) > 2:
-                    stats['all_caps'].append(word)
-                # Track Title Case words (excluding sentence starts)
-                elif word[0].isupper() and not word.isupper():
-                    # Check if it's sentence start
-                    is_sentence_start = False
-                    if i == 0:
-                        is_sentence_start = True
-                    elif i > 0 and words[i-1][-1] in '.!?':
-                        is_sentence_start = True
-                        
-                    if is_sentence_start:
-                        stats['sentence_starts'].append(word)
-                    else:
-                        stats['title_case'].append(word)
-                        
-            return stats
-        
-        # Get capitalization statistics for both texts
-        source_stats = get_capitalization_stats(source)
-        trans_stats = get_capitalization_stats(translation)
-        
-        # Compare ALL CAPS words count
-        if len(source_stats['all_caps']) != len(trans_stats['all_caps']):
+            # Normalize newlines first
+            text = text.replace('\\n', ' ')
+            
+            # Split by any whitespace
+            words = [w for w in text.split() if w]
+            
+            # Extract only letter characters and keep words that have at least one letter
+            valid_words = []
+            for word in words:
+                cleaned = clean_word(word)
+                if cleaned:  # Include if it has at least one letter
+                    valid_words.append(cleaned)
+            
+            if not valid_words:
+                return False, False
+                
+            # Check if any word is all caps
+            has_all_caps = any(w.upper() == w for w in valid_words)
+            
+            # Check if all words are caps
+            all_words_caps = all(w.upper() == w for w in valid_words)
+            
+            return has_all_caps, all_words_caps
+
+        # Get capitalization flags for both texts
+        source_has_caps, source_all_caps = get_caps_flags(source)
+        trans_has_caps, trans_all_caps = get_caps_flags(translation)
+
+        # Compare flags
+        if source_has_caps != trans_has_caps:
             issues.append(
-                f"Capitalization pattern mismatch: source has {len(source_stats['all_caps'])} ALL CAPS word(s) "
-                f"({', '.join(source_stats['all_caps'])}) but translation has {len(trans_stats['all_caps'])} "
-                f"({', '.join(trans_stats['all_caps'])})"
+                f"Capitalization mismatch: source {'has' if source_has_caps else 'does not have'} "
+                f"ALL CAPS words, but translation {'has' if trans_has_caps else 'does not have'} them. "
+                f"Source: '{source}', Translation: '{translation}'"
             )
-        
-        # Compare Title Case words (excluding sentence starts)
-        if len(source_stats['title_case']) != len(trans_stats['title_case']):
+        elif source_all_caps != trans_all_caps:
             issues.append(
-                f"Capitalization pattern mismatch: source has {len(source_stats['title_case'])} Title Case word(s) "
-                f"({', '.join(source_stats['title_case'])}) but translation has {len(trans_stats['title_case'])} "
-                f"({', '.join(trans_stats['title_case'])})"
+                f"Capitalization mismatch: {'all' if source_all_caps else 'not all'} words in source are "
+                f"ALL CAPS, but {'all' if trans_all_caps else 'not all'} words in translation are. "
+                f"Source: '{source}', Translation: '{translation}'"
             )
         
         # Check newline preservation

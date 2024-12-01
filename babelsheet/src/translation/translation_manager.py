@@ -416,7 +416,7 @@ class TranslationManager:
                     sheet_name = missing_item['sheet_name']
                     
                     if issues:
-                        self.ui.debug(f"Translation '{translation}' has issues for {lang}: {issues}")
+                        #self.ui.debug(f"Translation '{translation}' has issues for {lang}: {issues}")
                         all_issues = missing_item.get('last_issues', []) + [{
                             'translation': translation,
                             'issues': issues,
