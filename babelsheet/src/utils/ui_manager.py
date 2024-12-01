@@ -361,7 +361,6 @@ class SimpleUIManager:
 
         if self.llm_handler:
             usage_stats = self.llm_handler.get_usage_stats()
-            self.console.print(f"\nLLM Usage Statistics", style="green bold")
             self.console.print("─" * 40, style="dim")
             self.console.print(f"Total tokens used: {usage_stats['total_tokens']} ({usage_stats['prompt_tokens']} prompt + {usage_stats['completion_tokens']} completion)", style="cyan")
             self.console.print(f"Total cost: ${usage_stats['total_cost']:.4f}", style="cyan")
