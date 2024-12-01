@@ -471,7 +471,7 @@ class TranslationManager:
         finally:
             self.ui.stop()
 
-    def _prepare_texts_with_contexts(self, source_texts: List[str], contexts: List[Dict[str, Any]], issues: List[Dict[str, Any]], term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> Tuple[str, List[Dict[str, List[str]]]]:
+    def _prepare_texts_with_contexts(self, source_texts: List[str], contexts: List[Dict[str, Any]], issues: List[Dict[str, Any]], term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
         """Prepare texts with their contexts for translation.
         
         Args:
@@ -481,21 +481,24 @@ class TranslationManager:
             term_base: Optional term base dictionary
             
         Returns:
-            Tuple of (combined texts with contexts as string, list of non-translatable terms per text)
+            Combined texts with contexts as a string
         """
         texts_with_contexts = []
-        non_translatable_terms = []
         
         for i, (text, context_dict, issue_list) in enumerate(zip(source_texts, contexts, issues)):
             # Extract non-translatable terms for this text
             text_terms = self.qa_handler._extract_non_translatable_terms(text)
-            non_translatable_terms.append({"text_id": i + 1, "terms": text_terms})
             
             # Prepare context
             exc = []
             for key, value in context_dict.items():
                 if value:  # Only add non-empty context
                     exc.append(f"<{self.escape(key)}>{self.escape(str(value))}</{self.escape(key)}>")
+            
+            # Add non-translatable terms to context if any exist
+            if text_terms:
+                terms_str = ", ".join(f"'{term}'" for term in text_terms)
+                exc.append(f"<non_translatable_terms>The following terms must be preserved exactly as is: {terms_str}</non_translatable_terms>")
             
             # Add issues
             for issue in issue_list:
@@ -504,11 +507,10 @@ class TranslationManager:
             expanded_context = "".join(exc)
             texts_with_contexts.append(f"<text id='{i+1}'>{text}</text>\n<context id='{i+1}'>{expanded_context}</context>")
         
-        return "\n\n".join(texts_with_contexts), non_translatable_terms
+        return "\n\n".join(texts_with_contexts)
 
     def _create_translation_prompt(self, combined_texts: str, target_lang: str, source_lang: str, 
-                                 term_base: Optional[Dict[str, Dict[str, Any]]] = None,
-                                 non_translatable_terms: Optional[List[Dict[str, List[str]]]] = None) -> str:
+                                 term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
         """Create the translation prompt with all necessary instructions.
         
         Args:
@@ -516,7 +518,6 @@ class TranslationManager:
             target_lang: Target language code
             source_lang: Source language code
             term_base: Optional term base dictionary
-            non_translatable_terms: Optional list of non-translatable terms per text
             
         Returns:
             Complete prompt string
@@ -531,21 +532,12 @@ specialized for casual mobile games. Your task is to provide accurate and cultur
             prompt += json.dumps(term_base, indent=2, ensure_ascii=False)
             prompt += "\n\n"
 
-        # Add non-translatable terms if available
-        if non_translatable_terms and any(item["terms"] for item in non_translatable_terms):
-            prompt += "Non-translatable Terms (must be preserved exactly as is):\n"
-            for item in non_translatable_terms:
-                if item["terms"]:
-                    terms_str = ", ".join(f"'{term}'" for term in item["terms"])
-                    prompt += f"Text #{item['text_id']}: {terms_str}\n"
-            prompt += "\n"
-
         prompt += f"""Texts to Translate:
 {combined_texts}
 
 Translation Rules:
 - Use provided term base for consistency
-- Preserve all non-translatable terms exactly as listed above
+- Preserve all non-translatable terms exactly as specified in each text's context
 - Don't translate special terms which match the following patterns: {str(self.config['qa']['non_translatable_patterns'])}
 - Keep appropriate format (uppercase/lowercase)
 - Replace newlines with \\n
@@ -649,8 +641,8 @@ Return translations and term suggestions in a structured JSON format."""
             Dictionary containing translations and term suggestions
         """
         # Prepare texts and create prompt
-        combined_texts, non_translatable_terms = self._prepare_texts_with_contexts(source_texts, contexts, issues)
-        prompt = self._create_translation_prompt(combined_texts, target_lang, source_lang, term_base, non_translatable_terms)
+        combined_texts = self._prepare_texts_with_contexts(source_texts, contexts, issues)
+        prompt = self._create_translation_prompt(combined_texts, target_lang, source_lang, term_base)
         
         # Get translation schema and generate completion
         translation_schema = self._get_translation_schema()
