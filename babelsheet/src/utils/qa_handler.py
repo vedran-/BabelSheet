@@ -285,7 +285,7 @@ class QAHandler:
             if item["is_valid"]:
                 all_issues.append([])
             else:
-                all_issues.append([f"LLM found issue: {issue}" for issue in item["issues"]])
+                all_issues.append([f"LLM issue: {issue}" for issue in item["issues"]])
         
         return all_issues
 

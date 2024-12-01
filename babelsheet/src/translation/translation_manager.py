@@ -180,17 +180,18 @@ class TranslationManager:
         
         # Display failed items if any
         if self.stats['failed_items']:
-            self.ui.info("\nFailed Translations:", style="red")
-            self.ui.info("-" * 80)
+            failed_items_text = "\nFailed Translations:\n"
+            failed_items_text += "-" * 80 + "\n"
             for item in self.stats['failed_items']:
-                self.ui.info(f"Sheet: {item['sheet_name']}")
-                self.ui.info(f"Language: {item['lang']}")
-                self.ui.info(f"Source text: {item['source_text']}")
-                self.ui.info(f"Last attempt: {item['last_translation']}")
-                self.ui.info(f"Issues:")
+                failed_items_text += f"Sheet: {item['sheet_name']}\n"
+                failed_items_text += f"Language: {item['lang']}\n"
+                failed_items_text += f"Source text: {item['source_text']}\n"
+                failed_items_text += f"Last attempt: [red]{item['last_translation']}[/red]\n"
+                failed_items_text += "Issues:\n"
                 for issue in item['issues']:
-                    self.ui.info(f"  - {issue}")
-                self.ui.info("-" * 40)
+                    failed_items_text += f"  - [red]{issue}[/red]\n"
+                failed_items_text += "-" * 40 + "\n"
+            self.ui.info(failed_items_text)
 
         self.ui.info("=" * 80)
         self.ui.info(header)
@@ -516,7 +517,7 @@ specialized for casual mobile games. Your task is to provide accurate and cultur
         # Add term base at the beginning if available
         if term_base:
             prompt += "Term Base References (use these translations consistently):\n"
-            prompt += json.dumps(term_base, indent=2, ensure_ascii=False)
+            prompt += str(json.dumps(term_base, indent=2, ensure_ascii=False))
             prompt += "\n\n"
 
         prompt += f"""Texts to Translate:
