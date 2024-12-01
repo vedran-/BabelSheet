@@ -121,7 +121,7 @@ class SheetsHandler:
                     for cell_ref, cell in updates.items():
                         cell.is_synced = True
 
-                    logger.info(f"[SYNC] Successfully synced {result['totalUpdatedCells']} cells in {sheet_name}: {updates}")
+                    logger.info(f"[SYNC] Synced {result['totalUpdatedCells']} cells in {sheet_name}: {updates}")
                 else:
                     logger.critical(f"[SYNC] Update completed but no cell count returned for {sheet_name}")
                     
@@ -184,7 +184,11 @@ class SheetsHandler:
 
     def get_column_names(self, sheet_data: pd.DataFrame, lower_case: bool = False) -> List[str]:
         """Get all column names from 1st row"""
-        return [cell.value.lower() if lower_case else cell.value for cell in sheet_data.iloc[0]]        
+        return [
+            (self.get_cell_value(sheet_data, 0, col_idx) or "").lower()
+            if lower_case else (self.get_cell_value(sheet_data, 0, col_idx) or "")
+            for col_idx in range(len(sheet_data.columns))
+        ]
 
     def get_column_indexes(self, sheet_data: pd.DataFrame, column_names: List[str], 
                            create_if_missing: bool = False) -> List[int]:

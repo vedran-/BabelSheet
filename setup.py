@@ -14,6 +14,7 @@ setup(
         'google-api-python-client',
         'pyyaml',
         'openai',
+        'litellm',
     ],
     entry_points={
         'console_scripts': [

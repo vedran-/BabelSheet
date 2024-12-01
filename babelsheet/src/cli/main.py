@@ -40,7 +40,7 @@ def validate_config(config):
             'ignore_case': bool
         },
         'llm': {
-            'api_url': str,
+            'model': str,
             'temperature': (int, float),
             'batch_size': (int, type(None)),  # Optional
             #'batch_delay': (int, float, type(None)),  # Optional
@@ -148,6 +148,7 @@ def cli(ctx, config):
 )
 @click.option(
     '--simple-output',
+    '-so',
     is_flag=True,
     help='Use simple console output instead of fancy UI'
 )
@@ -225,7 +226,7 @@ async def translate(ctx, target_langs, verbose):
     )
 
     logger.debug("Translation completed")
-    translation_manager.llm_handler.print_token_usage()
+    translation_manager.ui.print_overall_stats()
 
 @cli.command()
 @click.pass_context

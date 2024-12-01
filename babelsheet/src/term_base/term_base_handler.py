@@ -23,7 +23,11 @@ class TermBaseHandler:
         self.sheet_data = self.sheets_handler.get_sheet_data(self.sheet_name)
 
         # Find the index of the term column
-        self.term_column_index = self.sheets_handler.get_column_indexes(self.sheet_data, [self.term_column_name])[0]
+        column_indexes = self.sheets_handler.get_column_indexes(self.sheet_data, [self.term_column_name])
+        if not column_indexes:
+            self.term_column_index = -1
+        else:
+            self.term_column_index = column_indexes[0]
         if self.term_column_index == -1:
             ui.critical(f"Required column '{self.term_column_name}' not found in term base sheet")
             raise ValueError(f"Required column '{self.term_column_name}' not found in term base sheet")
@@ -92,8 +96,12 @@ class TermBaseHandler:
         row[self.term_column_index] = CellData(term, is_synced=False)
 
         # Set comment
-        comment_column_idx = self.sheet_data.attrs['context_column_indexes'][0]
-        row[comment_column_idx] = CellData(comment, is_synced=False)
+        context_column_indexes = self.sheet_data.attrs.get('context_column_indexes', [])
+        if context_column_indexes and len(context_column_indexes) > 0:
+            comment_column_idx = context_column_indexes[0]
+            row[comment_column_idx] = CellData(comment, is_synced=False)
+        else:
+            ui.warning(f"No context columns found - comment '{comment}' will not be saved")
 
         ui.info(f"Adding new term: '{term}' with comment: '{comment}'")
 

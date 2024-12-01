@@ -27,8 +27,7 @@ class TranslationManager:
         # Initialize LLM Handler with correct parameters from config
         self.llm_handler = LLMHandler(
             api_key=llm_config.get('api_key'),
-            base_url=llm_config.get('api_url', "https://api.openai.com/v1"),
-            model=llm_config.get('model', 'o1-mini'),
+            model=llm_config.get('model', 'anthropic/claude-3-sonnet'),
             temperature=llm_config.get('temperature', 0.3),
             config=llm_config
         )
@@ -47,7 +46,7 @@ class TranslationManager:
         self.retry_delay = llm_config.get('retry_delay', 1)  # seconds
         
         # Initialize UI Manager
-        self.ui = create_ui_manager(config)
+        self.ui = create_ui_manager(config, self.llm_handler)
         
         # Initialize statistics
         self.stats = {
@@ -212,12 +211,15 @@ class TranslationManager:
         Returns:
             Dictionary mapping language codes to missing translations
         """
-        missing_translations = {}
-        source_lang_idx = self.sheets_handler.get_column_indexes(df, [source_lang])[0]
+        source_lang_indexes = self.sheets_handler.get_column_indexes(df, [source_lang])
+        if not source_lang_indexes:
+            return {}
+        source_lang_idx = source_lang_indexes[0]
         target_langs_idx = self.sheets_handler.get_column_indexes(df, target_langs, create_if_missing=True)
         rows_count = df.shape[0]
 
         # Check each target language
+        missing_translations = {}
         for i in range(len(target_langs)):
             lang = target_langs[i]
             lang_idx = target_langs_idx[i]
@@ -234,7 +236,7 @@ class TranslationManager:
                     continue
 
                 target_cell = df.iloc[row_idx][lang_idx]
-                logger.debug(f"Checking row {row_idx} for language {lang}: {source_cell.value} -> {target_cell}")
+                #logger.debug(f"Checking row {row_idx} for language {lang}: {source_cell.value} -> {target_cell}")
                 # Check if translation is missing or empty
                 if target_cell is None or target_cell.is_empty():
                     if pd.isna(target_cell):
@@ -414,7 +416,7 @@ class TranslationManager:
                     sheet_name = missing_item['sheet_name']
                     
                     if issues:
-                        self.ui.debug(f"Translation '{translation}' has issues for {lang}: {issues}")
+                        #self.ui.debug(f"Translation '{translation}' has issues for {lang}: {issues}")
                         all_issues = missing_item.get('last_issues', []) + [{
                             'translation': translation,
                             'issues': issues,
@@ -657,6 +659,8 @@ Return translations and term suggestions in a structured JSON format."""
         # Process response
         result = self.llm_handler.extract_structured_response(response)
         translations = result.get("translations", [])
+        if len(translations) == 0:  # Fallback for LLMs that don't return translations in the expected format
+            translations = result.get("properties", []).get("translations", [])
         
         # Critical check: number of translations must match number of source texts
         if len(translations) != len(source_texts):
@@ -664,7 +668,7 @@ Return translations and term suggestions in a structured JSON format."""
             self.logger.critical("This indicates a fundamental problem with LLM response handling")
             self.logger.critical(f"Source texts: {source_texts}")
             self.logger.critical(f"Translations: {translations}")
-            os._exit(1)  # Force exit the application
+            raise Exception(f"Number of translations ({len(translations)}) does not match number of source texts ({len(source_texts)})")
             
         return result
 

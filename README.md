@@ -98,7 +98,6 @@ llm:
   api_key: ""  # Set via LLM_API_KEY environment variable
   model: "o1-mini"  # The LLM model to use
   temperature: 0.3  # Controls randomness in responses
-  api_url: "https://api.openai.com/v1"  # LLM API endpoint
   max_retries: 3    # Maximum retry attempts
   retry_delay: 1    # Initial delay between retries
   batch_size: 50    # Number of rows to process in a batch
@@ -135,26 +134,25 @@ Place the downloaded credentials.json file in the config directory.
 
 ## LLM Compatibility
 
-BabelSheet supports any LLM that provides an OpenAI-compatible API endpoint. Here are some examples:
+BabelSheet uses LiteLLM to support various LLM providers. Configure your provider in `config.yaml`:
+Check [LiteLLM](https://docs.litellm.ai/docs/providers) for supported providers.
 
 ### Local LLMs
 
-NOTE: Local LLMs are not recommended for production use, as they are not as good as top-tier cloud LLMs, like OpenAI, Anthropic, or Google.
+NOTE: Local LLMs are not recommended for production use, as they may not match the quality of top-tier cloud LLMs.
 
 1. **LM Studio**:
 ```yaml
 llm:
-  api_key: "not-needed"  # Can be any string
-  model: "local-model"   # Will be ignored, model is selected in LM Studio
-  api_url: "http://localhost:1234/v1"  # Default LM Studio port
+  api_key: "not-needed"
+  model: "lm_studio/model-name"   # The model name doesn't matter, it's selected in LM Studio
 ```
 
 2. **Ollama**:
 ```yaml
 llm:
   api_key: "not-needed"
-  model: "mistral"  # Or any other model you have pulled
-  api_url: "http://localhost:11434/v1"  # Ollama with OpenAI compatibility
+  model: "ollama/mistral"  # or ollama/llama2, ollama/codellama, etc.
 ```
 
 ### Cloud Services
@@ -163,28 +161,45 @@ llm:
 ```yaml
 llm:
   api_key: "your-anthropic-key"
-  model: "claude-3-5-sonnet-20241022"  # or claude-3-5-sonnet-20240620
-  api_url: "https://api.anthropic.com/v1"
+  model: "anthropic/claude-3-sonnet-20240229"  # or anthropic/claude-3-opus-20240229
 ```
 
 2. **OpenAI**:
 ```yaml
 llm:
   api_key: "your-openai-key"
-  model: "o1-mini"  # or gpt-4o, gpt-4o-mini, o1-preview
-  api_url: "https://api.openai.com/v1"
+  model: "openai/gpt-4-turbo-preview"  # or openai/gpt-4, openai/gpt-3.5-turbo
 ```
 
 3. **Azure OpenAI**:
 ```yaml
 llm:
   api_key: "your-azure-key"
-  model: "your-deployment-name"
-  api_url: "https://your-resource.openai.azure.com/openai/deployments/your-deployment-name"
+  model: "azure/deployment-name/model-name"  # e.g., azure/gpt4/gpt-4
 ```
 
+4. **Google Gemini**:
+```yaml
+llm:
+  api_key: "your-google-key"
+  model: "gemini/gemini-pro"
+```
 
-4. **Set your LLM API key**:
+5. **Mistral**:
+```yaml
+llm:
+  api_key: "your-mistral-key"
+  model: "mistral/mistral-large-latest"  # or mistral/mistral-medium, mistral/mistral-small
+```
+
+6. **Cohere**:
+```yaml
+llm:
+  api_key: "your-cohere-key"
+  model: "cohere/command"  # or cohere/command-light
+```
+
+### Set your LLM API key:
 
 On Windows (PowerShell):
 ```powershell
@@ -195,6 +210,24 @@ On Unix/MacOS:
 ```bash
 export LLM_API_KEY=your-api-key
 ```
+
+### Model Selection Tips
+
+1. For best translation quality, we recommend:
+   - Anthropic Claude 3 (Opus or Sonnet)
+   - OpenAI GPT-4 Turbo
+   - Mistral Large
+   - Google Gemini Pro
+
+2. For cost-effective translations:
+   - OpenAI GPT-3.5 Turbo
+   - Mistral Medium/Small
+   - Cohere Command
+   - Local models (quality may vary)
+
+3. For offline/private deployments:
+   - Azure OpenAI (enterprise)
+   - Local models via LM Studio or Ollama
 
 ## Usage
 

@@ -1,50 +1,92 @@
 from typing import Dict, Any, Optional
-import aiohttp
 import json
 import os
 
+import litellm
+os.environ["LITELLM_LOG"] = "ERROR"
+
+# Disable all LiteLLM logging
+#import logging
+#logging.getLogger("litellm").setLevel(logging.ERROR)
+#logging.getLogger("litellm.llm_provider").setLevel(logging.ERROR)
+#logging.getLogger("litellm.utils").setLevel(logging.ERROR)
+#logging.getLogger("openai").setLevel(logging.ERROR)
+
+# Now import litellm
+from litellm import acompletion, completion_cost
+
+# Additional verbosity controls
+#litellm.verbose = False
+litellm.set_verbose=False
+litellm.log_raw_request_response=False
+litellm.success_callback = [] 
+
+def my_custom_logging_fn(model_call_dict):
+    #print(f"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXX XXXXXXXXXXX\nXXXXXXXXXXX XXXXXXXXXX XXXXXXXX\nXXXXXXXXXX\nXXXXXXXXXX\nmodel call details: {model_call_dict}")
+    pass
+
+
 class LLMHandler:
-    # Class-level variables to track tokens across all instances
+    # Class-level variables to track tokens and costs across all instances
     total_prompt_tokens = 0
     total_completion_tokens = 0
+    total_cost = 0.0
     
-    def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1",
-                 model: str = "claude-3-5-sonnet", temperature: float = 0.3,
-                 config: Optional[Dict[str, bool]] = None):
+    def __init__(self, api_key: str, model: str = "anthropic/claude-3-5-sonnet", 
+                 temperature: float = 0.3, config: Optional[Dict[str, bool]] = None):
         """Initialize the LLM Handler.
         
         Args:
             api_key: API key for the LLM service
-            base_url: Base URL for the API (default: OpenAI's URL)
-            model: Model to use for translations
+            model: Model to use for translations (with provider prefix)
             temperature: Temperature parameter for generation
             config: Configuration dictionary with keys:
                 - save_requests: Whether to save API requests to files
                 - save_responses: Whether to save API responses to files
         """
-        self.api_key = api_key
-        self.base_url = base_url.rstrip('/')  # Remove trailing slash if present
         self.model = model
         self.temperature = temperature
         self.config = config or {
             "save_requests": False,
             "save_responses": False
         }
+        
+        # Configure environment based on provider prefix
+        provider = model.split('/')[0] if '/' in model else 'openai'
+        
+        if provider == 'anthropic':
+            os.environ["ANTHROPIC_API_KEY"] = api_key
+            if not model.split('/')[-1].startswith("claude-"):
+                raise ValueError("Invalid model for Anthropic. Must start with 'claude-'")
+        elif provider == 'azure':
+            os.environ["AZURE_API_KEY"] = api_key
+            if "/" not in model:
+                raise ValueError("Azure model should be in format 'azure/deployment_name/model_name'")
+        elif provider == 'lm_studio':  # LM Studio
+            os.environ["OPENAI_API_KEY"] = "not-needed"
+            os.environ["OPENAI_API_BASE"] = "http://localhost:1234/v1"
+        elif provider == 'ollama':
+            os.environ["OPENAI_API_KEY"] = "not-needed"
+            os.environ["OPENAI_API_BASE"] = "http://localhost:11434/v1"
+        elif api_key:  # Default to OpenAI
+            os.environ["OPENAI_API_KEY"] = api_key
 
     @classmethod
-    def get_token_usage(cls) -> Dict[str, int]:
-        """Get the total token usage."""
+    def get_usage_stats(cls) -> Dict[str, Any]:
+        """Get the total token usage and cost statistics."""
         return {
             "prompt_tokens": cls.total_prompt_tokens,
             "completion_tokens": cls.total_completion_tokens,
-            "total_tokens": cls.total_prompt_tokens + cls.total_completion_tokens
+            "total_tokens": cls.total_prompt_tokens + cls.total_completion_tokens,
+            "total_cost": cls.total_cost
         }
 
     @classmethod
-    def print_token_usage(cls) -> None:
-        """Print the total token usage statistics."""
-        usage = cls.get_token_usage()
+    def print_usage_stats(cls) -> None:
+        """Print the total token usage and cost statistics."""
+        usage = cls.get_usage_stats()
         print(f">>> Token Usage: {usage['prompt_tokens']} (prompt) + {usage['completion_tokens']} (completion) = {usage['total_tokens']} (total)")
+        print(f">>> Total Cost: ${usage['total_cost']}")
 
     def dump_json_to_file(self, data: Dict[str, Any], filename: str) -> None:
         json_str = json.dumps(data, indent=2, ensure_ascii=False)
@@ -66,11 +108,6 @@ class LLMHandler:
         Returns:
             Dict containing the API response
         """
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}"
-        }
-        
         data = {
             "model": self.model,
             "messages": messages,
@@ -89,49 +126,71 @@ class LLMHandler:
                     "content": json_requirement
                 })
             
-            # For newer models that support response_format
-            if self.model.startswith(("gpt-4-1106", "gpt-3.5-turbo-1106")):
-                data["response_format"] = {"type": "json_object"}
-            
-            # Add function calling as fallback for older models
-            else:
-                data["functions"] = [{
-                    "name": "process_response",
-                    "description": "Process the structured response",
-                    "parameters": json_schema
-                }]
-                data["function_call"] = {"name": "process_response"}
+            # Only add response_format and functions for supported models
+            if "openai" in self.model.lower():
+                if self.model.startswith(("gpt-4-1106", "gpt-3.5-turbo-1106", "gpt-4o", "o1")):
+                    data["response_format"] = {"type": "json_object"}
+                else:
+                    data["functions"] = [{
+                        "name": "process_response",
+                        "description": "Process the structured response",
+                        "parameters": json_schema
+                    }]
+                    data["function_call"] = {"name": "process_response"}
         
-        # Save request data to timestamped JSON file
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
+        # Save request data if configured
         if self.config["save_requests"]:
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"llm_{timestamp}_request.json"
             self.dump_json_to_file(data, filename)
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=data
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise Exception(f"LLM API call failed: {error_text}")
+        try:
+            # Use LiteLLM's async completion function
+            response = await acompletion(**data, logger_fn=my_custom_logging_fn, log_raw_request_response=False, success_callback=[])
+            
+            # Calculate cost
+            try:
+                cost = completion_cost(
+                    model=self.model,
+                    messages=messages,
+                    completion=response.choices[0].message.content
+                )
+            except Exception as e:
+                # If cost calculation fails (e.g., for local models), default to 0
+                print(f"Cost calculation failed for model {self.model}, will use price of 0.0")
+                cost = 0.0
                 
-                ret = await response.json()
+            LLMHandler.total_cost += cost
+            
+            # Update token counters
+            if response.usage:
+                LLMHandler.total_prompt_tokens += response.usage.prompt_tokens
+                LLMHandler.total_completion_tokens += response.usage.completion_tokens
 
-                # Update token counters if usage info is available
-                if "usage" in ret:
-                    LLMHandler.total_prompt_tokens += ret["usage"].get("prompt_tokens", 0)
-                    LLMHandler.total_completion_tokens += ret["usage"].get("completion_tokens", 0)
+            if self.config["save_responses"]:
+                # Convert to serializable format only for saving
+                ret = {
+                    "choices": [{
+                        "message": {
+                            "role": "assistant",
+                            "content": response.choices[0].message.content
+                        }
+                    }],
+                    "usage": {
+                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                        "total_tokens": (response.usage.prompt_tokens + response.usage.completion_tokens) if response.usage else 0
+                    },
+                    "cost": round(cost, 4)
+                }
+                filename = f"llm_{timestamp}_response.json"
+                self.dump_json_to_file(ret, filename)
 
-                if self.config["save_responses"]:
-                    filename = f"llm_{timestamp}_response.json"
-                    self.dump_json_to_file(ret, filename)
+            return response
 
-                return ret
+        except Exception as e:
+            raise Exception(f"LLM API call failed: {str(e)}")
 
     def extract_structured_response(self, response: Dict[str, Any]) -> Any:
         """Extract and parse JSON response from the API response."""
@@ -172,6 +231,8 @@ class LLMHandler:
                         in_string = not in_string
                     escape_next = char == '\\' and not escape_next
 
-            return json.loads(content)
+            ret = json.loads(content)
+            return ret
+        
         except (KeyError, IndexError, json.JSONDecodeError) as e:
             raise ValueError(f"Failed to extract structured response: {e}")

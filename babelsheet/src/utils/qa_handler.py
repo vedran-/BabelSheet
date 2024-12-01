@@ -2,6 +2,7 @@ import re
 from typing import Dict, List, Tuple, Optional, Pattern, Any
 from .llm_handler import LLMHandler
 import logging
+import json
 
 class QAHandler:
     def __init__(self, max_length: Optional[int] = None, llm_handler: Optional[LLMHandler] = None, non_translatable_patterns: Optional[List[Dict[str, str]]] = None):
@@ -89,22 +90,74 @@ class QAHandler:
     def _validate_format(self, source: str, translation: str) -> List[str]:
         """Check format consistency between source and translation."""
         issues = []
+
+        def get_caps_flags(text: str) -> tuple[bool, bool]:
+            """
+            Returns two flags for a text:
+            1. has_all_caps_word: True if text contains any word in ALL CAPS
+            2. is_all_words_caps: True if all words are in ALL CAPS
+            """
+            def clean_word(word: str) -> str:
+                """Extract only letter characters from a word."""
+                return ''.join(c for c in word if c.isalpha())
+            
+            # Normalize newlines first
+            text = text.replace('\\n', ' ')
+            
+            # Split by any whitespace
+            words = [w for w in text.split() if w]
+            
+            # Extract only letter characters and keep words that have at least one letter
+            valid_words = []
+            for word in words:
+                cleaned = clean_word(word)
+                if cleaned:  # Include if it has at least one letter
+                    valid_words.append(cleaned)
+            
+            if not valid_words:
+                return False, False
+                
+            # Check if any word is all caps
+            has_all_caps = any(w.upper() == w for w in valid_words)
+            
+            # Check if all words are caps
+            all_words_caps = all(w.upper() == w for w in valid_words)
+            
+            return has_all_caps, all_words_caps
+
+        # Get capitalization flags for both texts
+        source_has_caps, source_all_caps = get_caps_flags(source)
+        trans_has_caps, trans_all_caps = get_caps_flags(translation)
+
+        # Compare flags
+        if source_has_caps != trans_has_caps:
+            issues.append(
+                f"Capitalization mismatch: source {'has' if source_has_caps else 'does not have'} "
+                f"ALL CAPS words, but translation {'has' if trans_has_caps else 'does not have'} them. "
+                f"Source: '{source}', Translation: '{translation}'"
+            )
+        elif source_all_caps != trans_all_caps:
+            issues.append(
+                f"Capitalization mismatch: {'all' if source_all_caps else 'not all'} words in source are "
+                f"ALL CAPS, but {'all' if trans_all_caps else 'not all'} words in translation are. "
+                f"Source: '{source}', Translation: '{translation}'"
+            )
         
-        # Check case consistency for all-caps words
-        source_caps = re.findall(r'\b[A-Z]{2,}\b', source)
-        for word in source_caps:
-            if word in source and not any(word in t for t in re.findall(r'\b[A-Z]{2,}\b', translation)):
-                issues.append(f"Capitalization mismatch for term: {word} between source ({source}) and translation ({translation})")
+        def count_newlines(text: str) -> int:
+            """Count newlines in text, handling both \\n and \n"""
+            return text.count('\\n') + text.count('\n')
         
-        # Check newline preservation
-        if source.count('\\n') != translation.count('\\n'):
+        # Check newline preservation using normalized counts, allowing 1 line difference
+        source_newlines = count_newlines(source)
+        trans_newlines = count_newlines(translation)
+        if abs(source_newlines - trans_newlines) > 1:  # Allow difference of 1
             issues.append(f"Newline count mismatch between source ({source}) and translation ({translation})")
             
-        # Check ending punctuation
-        source_end = re.search(r'[.!?:,]$', source)
-        trans_end = re.search(r'[.!?:,]$', translation)
+        # Check ending punctuation (after trimming)
+        source_end = re.search(r'[.!?:,]$', source.strip())
+        trans_end = re.search(r'[.!?:,]$', translation.strip())
         if bool(source_end) != bool(trans_end):
-            issues.append(f"Ending punctuation does not match between source ({source}) and translation ({translation})")
+            issues.append(f"Ending punctuation does not match between source ({source.strip()}) and translation ({translation.strip()})")
             
         return issues
     
@@ -276,18 +329,40 @@ class QAHandler:
             json_schema=validation_schema
         )
 
-        result = self.llm_handler.extract_structured_response(response)
-        validations = result.get("validations", [])
+        # Extract content from LiteLLM response
+        content = response.choices[0].message.content.strip()
         
-        # Convert to list of issue lists, maintaining original order
-        all_issues = []
-        for item in validations:
-            if item["is_valid"]:
-                all_issues.append([])
-            else:
-                all_issues.append([f"LLM issue: {issue}" for issue in item["issues"]])
+        # Extract JSON block if present
+        json_block_start_idx = content.find("```json")
+        if json_block_start_idx != -1:
+            json_block_end_idx = content.rfind("```")
+            if json_block_end_idx != -1:
+                content = content[json_block_start_idx + len("```json"):json_block_end_idx]
         
-        return all_issues
+        content = content.strip()
+        
+        # Parse JSON response
+        try:
+            result = json.loads(content)
+            validations = result.get("validations", [])
+            
+            # Convert to list of issue lists, maintaining original order
+            all_issues = []
+            for item in validations:
+                if item["is_valid"]:
+                    all_issues.append([])
+                else:
+                    all_issues.append([f"LLM issue: {issue}" for issue in item["issues"]])
+            
+            return all_issues
+
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse LLM response as JSON: {e}")
+            return [[f"LLM validation failed: Could not parse JSON response"]] * len(items)
+        
+        except AttributeError as e:
+            self.logger.error(f"Failed to parse LLM response as JSON: {e}")
+            return [[f"LLM validation failed: Invalid JSON response"]] * len(items)
 
     async def validate_with_llm(self, source_text: str, translated_text: str, context: str, issues: List[str], target_lang: str) -> List[str]:
         """Use LLM to validate translation quality."""
