@@ -11,6 +11,7 @@ from ..llm_handler import LLMHandler
 import threading
 import logging
 import traceback
+import queue
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class UISignals(QObject):
     complete_translation_signal = pyqtSignal(str, str, str, str)
     start_new_batch_signal = pyqtSignal()
     add_term_base_signal = pyqtSignal(str, str, str, str)
+    check_thread_signal = pyqtSignal()  # New signal for checking thread status
 
 class GraphicalUIManager:
     def __init__(self, max_history: int = 100, status_lines: int = 6, llm_handler: LLMHandler = None):
@@ -34,10 +36,10 @@ class GraphicalUIManager:
         self.window.setWindowTitle("BabelSheet Translator")
         self.window.resize(1200, 800)
         
-        # Create signals object in the main thread
+        # Create signals object
         self.signals = UISignals()
         
-        # Connect signals to slots
+        # Connect signals to slots with QueuedConnection to ensure thread safety
         self.signals.debug_signal.connect(self._debug, Qt.ConnectionType.QueuedConnection)
         self.signals.info_signal.connect(self._info, Qt.ConnectionType.QueuedConnection)
         self.signals.warning_signal.connect(self._warning, Qt.ConnectionType.QueuedConnection)
@@ -46,6 +48,7 @@ class GraphicalUIManager:
         self.signals.add_translation_signal.connect(self._add_translation_entry, Qt.ConnectionType.QueuedConnection)
         self.signals.complete_translation_signal.connect(self._complete_translation, Qt.ConnectionType.QueuedConnection)
         self.signals.start_new_batch_signal.connect(self._start_new_batch, Qt.ConnectionType.QueuedConnection)
+        self.signals.check_thread_signal.connect(self._check_thread_status, Qt.ConnectionType.QueuedConnection)
         
         # Set dark fusion theme
         self.app.setStyle("Fusion")
@@ -82,11 +85,21 @@ class GraphicalUIManager:
             'failed': 0
         }
         
-        # Setup update timer
+        # Setup update timer for periodic UI updates
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self._update_display)
         self.update_timer.start(250)  # Update every 250ms
         
+        # Setup thread check timer
+        self.thread_check_timer = QTimer()
+        self.thread_check_timer.timeout.connect(lambda: self.signals.check_thread_signal.emit())
+        self.thread_check_timer.start(100)  # Check every 100ms
+        
+        # Thread management
+        self.should_stop = False
+        self.error_queue = None
+        self.translation_thread = None
+
     def _setup_stats_panel(self):
         """Setup the statistics panel."""
         self.stats_widget = QWidget()
@@ -102,7 +115,7 @@ class GraphicalUIManager:
         self.stats_layout.addWidget(self.failed_label, 2, 0)
         
         self.layout.addWidget(self.stats_widget)
-        
+
     def _setup_translation_table(self):
         """Setup the translation progress table."""
         self.table = QTableWidget()
@@ -127,7 +140,14 @@ class GraphicalUIManager:
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         
         self.layout.addWidget(self.table)
-        
+
+    def _setup_status_panel(self):
+        """Setup the status messages panel."""
+        self.status_text = QTextEdit()
+        self.status_text.setReadOnly(True)
+        self.status_text.setMaximumHeight(150)
+        self.layout.addWidget(self.status_text)
+
     def _create_table_item(self, text: str, multiline: bool = False) -> QTableWidgetItem:
         """Create a table item with proper formatting."""
         item = QTableWidgetItem(text)
@@ -136,14 +156,7 @@ class GraphicalUIManager:
             # Enable text wrapping for multiline items
             item.setTextAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         return item
-        
-    def _setup_status_panel(self):
-        """Setup the status messages panel."""
-        self.status_text = QTextEdit()
-        self.status_text.setReadOnly(True)
-        self.status_text.setMaximumHeight(150)
-        self.layout.addWidget(self.status_text)
-        
+
     def _get_status_color(self, status: str, entry_type: str) -> QColor:
         """Get the color for a status."""
         if entry_type == "term_base":
@@ -244,7 +257,20 @@ class GraphicalUIManager:
         for msg in self.status_messages:
             status_text += f"{msg}\n"
         self.status_text.setText(status_text)
-        
+
+    def _check_thread_status(self):
+        """Check translation thread status and handle errors."""
+        if self.error_queue is None:
+            return
+            
+        try:
+            error, tb = self.error_queue.get_nowait()
+            logger.critical("Error in translation thread:")
+            logger.critical(tb)
+            self.stop()
+        except queue.Empty:
+            pass
+
     def start(self):
         """Start the graphical interface."""
         try:
@@ -259,12 +285,18 @@ class GraphicalUIManager:
     def stop(self):
         """Stop the graphical interface."""
         try:
+            self.should_stop = True
             if self.app:
                 self.app.quit()
         except Exception as e:
             logger.error(f"Error stopping GraphicalUIManager: {str(e)}")
             logger.error(traceback.format_exc())
-        
+
+    def set_thread_info(self, translation_thread, error_queue):
+        """Set translation thread and error queue for monitoring."""
+        self.translation_thread = translation_thread
+        self.error_queue = error_queue
+
     def debug(self, message: str):
         """Thread-safe debug message."""
         self.signals.debug_signal.emit(message)
@@ -388,7 +420,7 @@ class GraphicalUIManager:
         self.translation_history.extend(self._current_batch)
         self._current_batch = []
         self._update_display()
-        
+
     def _add_term_base_entry(self, term: str, lang: str, translation: str, comment: str):
         """Internal add term base entry handler (runs in main thread)."""
         status = "📖"
@@ -414,4 +446,4 @@ class GraphicalUIManager:
         full_translation = translation
         if comment:
             full_translation += f" (Comment: {comment})"
-        self.add_translation_entry(term, lang, status, full_translation, entry_type="term_base") 
+        self.add_translation_entry(term, lang, status, full_translation, entry_type="term_base")

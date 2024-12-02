@@ -73,7 +73,7 @@ class QAHandler:
             
             # Validate term base usage if provided
             if term_base and target_lang:
-                self.logger.debug(f"Starting term base validation for language: {target_lang}")
+                #self.logger.debug(f"Starting term base validation for language: {target_lang}")
                 tb_issues = self._validate_term_base(translated_text, term_base, target_lang)
                 if tb_issues:
                     self.logger.warning(f"Found term base issues: {tb_issues}")
@@ -205,7 +205,7 @@ class QAHandler:
             target_lang: Target language code
         """
         issues = []
-        self.logger.debug(f"Validating translation against term base for language: {target_lang}")
+        #self.logger.debug(f"Validating translation against term base for language: {target_lang}")
         
         for source_term, term_data in term_base.items():
             expected_translation = term_data.get('translation', '')

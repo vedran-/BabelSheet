@@ -442,8 +442,13 @@ class TranslationManager:
                                 self.ui.complete_translation(missing_item['source_text'], lang, translation, str(issues))
                             else:
                                 # Keep the item in the list for retry, but mark it as in progress
-                                self.ui.complete_translation(missing_item['source_text'], lang, translation, str(issues))
-                                self.ui.add_translation_entry(missing_item['source_text'], lang, "⏳ Retrying...")
+                                self.ui.add_translation_entry(
+                                    missing_item['source_text'], 
+                                    lang, 
+                                    "⏳ Retrying...",
+                                    translation,
+                                    str(issues)
+                                )
                         else:
                             # Only handle as successful if there are no issues
                             self.sheets_handler.modify_cell_data(

@@ -200,27 +200,12 @@ def translate_command(ctx, target_langs, sheet_id, verbose, simple_output):
     translation_thread.daemon = True
     translation_thread.start()
 
+    # Set thread info in UI manager for monitoring
+    ctx.ui.set_thread_info(translation_thread, error_queue)
+
     # Start UI in main thread
     try:
-        # Start a timer to check the error queue periodically
-        def check_errors():
-            try:
-                error, tb = error_queue.get_nowait()
-                logger.critical("Error in translation thread:")
-                logger.critical(tb)
-                ctx.ui.stop()
-                sys.exit(1)
-            except queue.Empty:
-                if ctx.ui and hasattr(ctx.ui, 'window'):
-                    ctx.ui.window.after(100, check_errors)
-
         ctx.ui.start()
-        check_errors()  # Start error checking
-
-        # Keep the main thread running
-        while translation_thread.is_alive():
-            translation_thread.join(0.1)
-
     except KeyboardInterrupt:
         logger.info("Translation interrupted by user")
         ctx.ui.stop()
@@ -230,18 +215,6 @@ def translate_command(ctx, target_langs, sheet_id, verbose, simple_output):
         logger.critical(traceback.format_exc())
         ctx.ui.stop()
         sys.exit(1)
-
-    # Check if there were any errors in the queue
-    try:
-        error, tb = error_queue.get_nowait()
-        logger.critical("Error in translation thread:")
-        logger.critical(tb)
-        ctx.ui.stop()
-        sys.exit(1)
-    except queue.Empty:
-        pass
-
-    ctx.ui.stop()
 
 async def translate(ctx, target_langs, verbose):
     """Translate missing entries in the specified Google Sheet."""
