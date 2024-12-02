@@ -44,7 +44,7 @@ class QAHandler:
         issues = []
         
         try:
-            self.logger.debug(f"Validating translation: '{source_text}' => '{translated_text}' ({target_lang})")
+            #self.logger.debug(f"Validating translation: '{source_text}' => '{translated_text}' ({target_lang})")
             
             # Check for non-translatable terms only if patterns are configured
             if self.patterns:
@@ -234,8 +234,8 @@ class QAHandler:
                     #self.logger.debug(f"Term '{source_term}' correctly translated as '{expected_translation}'")
                     pass
                 
-        if not issues:
-            self.logger.debug("No term base issues found")
+        #if not issues:
+        #    self.logger.debug("No term base issues found")
         return issues
     
     

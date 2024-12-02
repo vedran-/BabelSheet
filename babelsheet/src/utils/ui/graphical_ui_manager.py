@@ -144,31 +144,50 @@ class GraphicalUIManager:
         self.status_text.setMaximumHeight(150)
         self.layout.addWidget(self.status_text)
         
+    def _get_status_color(self, status: str, entry_type: str) -> QColor:
+        """Get the color for a status."""
+        if entry_type == "term_base":
+            return QColor(0, 0, 255, 50)  # Blue with alpha
+        elif status.startswith("✓"):
+            return QColor(0, 255, 0, 50)  # Green with alpha
+        elif status.startswith("❌"):
+            return QColor(255, 0, 0, 50)  # Red with alpha
+        elif status.startswith("⏳") or status.startswith("⌛"):
+            return QColor(255, 255, 0, 50)  # Yellow with alpha
+        else:
+            return QColor(128, 128, 128, 50)  # Gray with alpha
+
     def _format_translation_text(self, translation: str, entry: dict) -> str:
         """Format translation text with issues and previous attempts."""
-        text_parts = [translation]
+        text_parts = []
         
-        # Add current issues if any
-        if entry.get("issues"):
-            text_parts.append("\n" + "=" * 40)
-            text_parts.append("Current Issues:")
-            for issue in entry["issues"]:
-                text_parts.append(f"• {issue}")
-        
-        # Add previous attempts if any
-        if entry.get("last_issues"):
-            text_parts.append("\n" + "=" * 40)
-            text_parts.append("Previous Attempts:")
-            for attempt in entry["last_issues"]:
-                text_parts.append(f"\n▶ Translation: {attempt['translation']}")
-                if attempt['issues']:
-                    text_parts.append("Issues:")
-                    if isinstance(attempt['issues'], list):
-                        for issue in attempt['issues']:
-                            text_parts.append(f"• {issue}")
-                    else:
-                        text_parts.append(f"• {attempt['issues']}")
-                text_parts.append("-" * 40)
+        # Add current translation or status
+        if translation.startswith("⏳") or translation.startswith("⌛"):
+            text_parts.append(translation)
+        else:
+            text_parts.append(translation)
+            
+            # Add current issues if any
+            if entry.get("issues"):
+                text_parts.append("\n" + "=" * 40)
+                text_parts.append("Current Issues:")
+                for issue in entry["issues"]:
+                    text_parts.append(f"• {issue}")
+            
+            # Add previous attempts if any
+            if entry.get("last_issues"):
+                text_parts.append("\n" + "=" * 40)
+                text_parts.append("Previous Attempts:")
+                for attempt in entry["last_issues"]:
+                    text_parts.append(f"\n▶ Translation: {attempt['translation']}")
+                    if attempt['issues']:
+                        text_parts.append("Issues:")
+                        if isinstance(attempt['issues'], list):
+                            for issue in attempt['issues']:
+                                text_parts.append(f"• {issue}")
+                        else:
+                            text_parts.append(f"• {attempt['issues']}")
+                    text_parts.append("-" * 40)
         
         return "\n".join(text_parts)
 
@@ -207,15 +226,7 @@ class GraphicalUIManager:
             translation_item = self._create_table_item(trans_text, multiline=True)
             
             # Set colors based on status
-            if entry["type"] == "term_base":
-                color = QColor(0, 0, 255, 50)  # Blue with alpha
-            elif entry["status"].startswith("✓"):
-                color = QColor(0, 255, 0, 50)  # Green with alpha
-            elif entry["status"].startswith("❌"):
-                color = QColor(255, 0, 0, 50)  # Red with alpha
-            else:
-                color = QColor(255, 255, 0, 50)  # Yellow with alpha
-                
+            color = self._get_status_color(entry["status"], entry["type"])
             for item in [time_item, source_item, lang_item, status_item, translation_item]:
                 item.setBackground(color)
                 
@@ -227,7 +238,7 @@ class GraphicalUIManager:
             
             # Adjust row height if needed
             self.table.resizeRowToContents(i)
-        
+            
         # Update status panel
         status_text = ""
         for msg in self.status_messages:

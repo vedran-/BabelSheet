@@ -338,13 +338,7 @@ class TranslationManager:
 
 
     async def _process_missing_translations(self, df: Optional[pd.DataFrame], missing_translations: Dict[str, List[Dict[str, Any]]], use_term_base: bool) -> None:
-        """Process missing translations, either for a single sheet or across all sheets.
-        
-        Args:
-            df: DataFrame containing translations (None if processing across all sheets)
-            missing_translations: Dictionary mapping language codes to missing translations
-            use_term_base: Whether to use the term base for translations
-        """
+        """Process missing translations, either for a single sheet or across all sheets."""
         skipped_items = []
         
         total_items = sum(len(items) for items in missing_translations.values())
@@ -381,76 +375,103 @@ class TranslationManager:
                 
                 batch = missing_items[:self.batch_size]
                 
-                # Add pending translations to UI
+                # Add pending translations to UI with progress indicator
                 for item in batch:
-                    #retry_count = len(item.get('last_issues', []))
-                    #if retry_count > 0:
-                    #    # Add exponential backoff delay for retries
-                    #    delay = self.retry_delay * (2 ** (retry_count - 1))
-                    #    self.ui.info(f"Waiting {delay}s before retry #{retry_count + 1} for '{item['source_text']}'")
-                    #    await asyncio.sleep(delay)
-                    self.ui.add_translation_entry(item['source_text'], lang)
+                    self.ui.add_translation_entry(
+                        item['source_text'], 
+                        lang, 
+                        "⏳ Preparing...",
+                        "Translation in progress..."
+                    )
                 
-                # Perform translation
+                # Update UI with batch progress
+                self.ui.info(f"Processing batch of {len(batch)} items ({processed_items + 1}-{processed_items + len(batch)} of {total_items})")
+                
+                # Perform translation in background
                 contexts = [item['context'] for item in batch]
                 
-                batch_translations = await self._perform_translation(
-                    source_texts=[item['source_text'] for item in batch],
-                    source_lang=source_lang,
-                    target_lang=lang,
-                    contexts=contexts,
-                    issues=[item.get('last_issues', []) for item in batch],
-                    use_term_base=use_term_base
-                )
-                
-                for idx, (missing_item, (translation, issues)) in enumerate(zip(batch, batch_translations)):
-                    processed_items += 1
-                    sheet_name = missing_item['sheet_name']
-                    
-                    if issues:
-                        #self.ui.debug(f"Translation '{translation}' has issues for {lang}: {issues}")
-                        all_issues = missing_item.get('last_issues', []) + [{
-                            'translation': translation,
-                            'issues': issues,
-                        }]
-                        missing_item['last_issues'] = all_issues
-                        
-                        if len(all_issues) >= self.max_retries:
-                            self.ui.critical(f"Max retries reached for {lang} item {missing_item['source_text']}. Giving up.")
-                            skipped_items.append(missing_item)
-                            missing_items.remove(missing_item)
-                            
-                            # Track failed translation
-                            self.stats['failed_translations'] += 1
-                            failed_item = {
-                                'sheet_name': sheet_name,
-                                'lang': lang,
-                                'source_text': missing_item['source_text'],
-                                'last_translation': translation,
-                                'issues': [str(issue['issues']) for issue in all_issues]
-                            }
-                            self.stats['failed_items'].append(failed_item)
-                            self._log_failed_translation(failed_item)
-                            
-                            self.ui.complete_translation(missing_item['source_text'], lang, translation, str(issues))
-                        else:
-                            # Keep the item in the list for retry, but mark it as in progress
-                            self.ui.complete_translation(missing_item['source_text'], lang, translation, str(issues))
-                            self.ui.add_translation_entry(missing_item['source_text'], lang, "⏳")
-                    else:
-                        # Only handle as successful if there are no issues
-                        self.sheets_handler.modify_cell_data(
-                            sheet_name=sheet_name,
-                            row=missing_item['row_idx'],
-                            col=missing_item['col_idx'],
-                            value=translation
+                try:
+                    # Update UI status for each item
+                    for item in batch:
+                        self.ui.complete_translation(
+                            item['source_text'],
+                            lang,
+                            "⌛ Translating...",
+                            ""
                         )
-                        missing_items.remove(missing_item)
-                        self.ui.complete_translation(missing_item['source_text'], lang, translation)
+                    
+                    # Perform the actual translation
+                    batch_translations = await self._perform_translation(
+                        source_texts=[item['source_text'] for item in batch],
+                        source_lang=source_lang,
+                        target_lang=lang,
+                        contexts=contexts,
+                        issues=[item.get('last_issues', []) for item in batch],
+                        use_term_base=use_term_base
+                    )
+                    
+                    # Process results
+                    for idx, (missing_item, (translation, issues)) in enumerate(zip(batch, batch_translations)):
+                        processed_items += 1
+                        sheet_name = missing_item['sheet_name']
                         
-                        # Track successful translation and log it
-                        self.stats['successful_translations'] += 1
-                        self._log_successful_translation(sheet_name, lang, missing_item['source_text'], translation)
+                        if issues:
+                            all_issues = missing_item.get('last_issues', []) + [{
+                                'translation': translation,
+                                'issues': issues,
+                            }]
+                            missing_item['last_issues'] = all_issues
+                            
+                            if len(all_issues) >= self.max_retries:
+                                self.ui.critical(f"Max retries reached for {lang} item {missing_item['source_text']}. Giving up.")
+                                skipped_items.append(missing_item)
+                                missing_items.remove(missing_item)
+                                
+                                # Track failed translation
+                                self.stats['failed_translations'] += 1
+                                failed_item = {
+                                    'sheet_name': sheet_name,
+                                    'lang': lang,
+                                    'source_text': missing_item['source_text'],
+                                    'last_translation': translation,
+                                    'issues': [str(issue['issues']) for issue in all_issues]
+                                }
+                                self.stats['failed_items'].append(failed_item)
+                                self._log_failed_translation(failed_item)
+                                
+                                self.ui.complete_translation(missing_item['source_text'], lang, translation, str(issues))
+                            else:
+                                # Keep the item in the list for retry, but mark it as in progress
+                                self.ui.complete_translation(missing_item['source_text'], lang, translation, str(issues))
+                                self.ui.add_translation_entry(missing_item['source_text'], lang, "⏳ Retrying...")
+                        else:
+                            # Only handle as successful if there are no issues
+                            self.sheets_handler.modify_cell_data(
+                                sheet_name=sheet_name,
+                                row=missing_item['row_idx'],
+                                col=missing_item['col_idx'],
+                                value=translation
+                            )
+                            missing_items.remove(missing_item)
+                            self.ui.complete_translation(missing_item['source_text'], lang, translation)
+                            
+                            # Track successful translation and log it
+                            self.stats['successful_translations'] += 1
+                            self._log_successful_translation(sheet_name, lang, missing_item['source_text'], translation)
+                    
+                except Exception as e:
+                    error_msg = f"Error processing batch: {str(e)}"
+                    self.ui.error(error_msg)
+                    self.logger.error(error_msg)
+                    # Update UI for failed items
+                    for item in batch:
+                        self.ui.complete_translation(
+                            item['source_text'],
+                            lang,
+                            "❌ Failed",
+                            error_msg
+                        )
+                    continue
                 
                 if len(missing_items) == 0:
                     missing_translations.pop(lang)
@@ -463,7 +484,9 @@ class TranslationManager:
             if skipped_items:
                 self.ui.warning(f"Skipped {len(skipped_items)} items due to max retries")
         except Exception as e:
-            logger.error(f"Error during translation processing: {str(e)}")
+            error_msg = f"Error during translation processing: {str(e)}"
+            self.ui.error(error_msg)
+            self.logger.error(error_msg)
             raise
 
     def _prepare_texts_with_contexts(self, source_texts: List[str], contexts: List[Dict[str, Any]], issues: List[Dict[str, Any]], term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
@@ -622,48 +645,55 @@ Return translations and term suggestions in a structured JSON format."""
     async def _get_llm_translations(self, source_texts: List[str], source_lang: str,
                                   target_lang: str, contexts: List[str], issues: List[Dict[str, Any]],
                                   term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
-        """Get translations from LLM.
+        """Get translations from LLM."""
+        # Update UI to show we're preparing the prompt
+        self.ui.info(f"Preparing translation prompt for {len(source_texts)} texts...")
         
-        Args:
-            source_texts: List of texts to translate
-            source_lang: Source language code
-            target_lang: Target language code
-            contexts: List of context strings for each text
-            issues: List of issues for each text
-            term_base: Optional term base dictionary
-            
-        Returns:
-            Dictionary containing translations and term suggestions
-        """
         # Prepare texts and create prompt
         combined_texts = self._prepare_texts_with_contexts(source_texts, contexts, issues)
         prompt = self._create_translation_prompt(combined_texts, target_lang, source_lang, term_base)
         
+        # Update UI to show we're waiting for LLM
+        self.ui.info("Waiting for LLM response...")
+        
         # Get translation schema and generate completion
         translation_schema = self._get_translation_schema()
-        response = await self.llm_handler.generate_completion(
-            messages=[
-                {"role": "system", "content": f"You are a world-class expert in translating to {target_lang}. You must provide translations for ALL texts in the input."},
-                {"role": "user", "content": prompt}
-            ],
-            json_schema=translation_schema
-        )
         
-        # Process response
-        result = self.llm_handler.extract_structured_response(response)
-        translations = result.get("translations", [])
-        if len(translations) == 0:  # Fallback for LLMs that don't return translations in the expected format
-            translations = result.get("properties", []).get("translations", [])
-        
-        # Critical check: number of translations must match number of source texts
-        if len(translations) != len(source_texts):
-            self.logger.critical(f"CRITICAL ERROR: Number of translations ({len(translations)}) does not match number of source texts ({len(source_texts)})")
-            self.logger.critical("This indicates a fundamental problem with LLM response handling")
-            self.logger.critical(f"Source texts: {source_texts}")
-            self.logger.critical(f"Translations: {translations}")
-            raise Exception(f"Number of translations ({len(translations)}) does not match number of source texts ({len(source_texts)})")
+        try:
+            response = await self.llm_handler.generate_completion(
+                messages=[
+                    {"role": "system", "content": f"You are a world-class expert in translating to {target_lang}. You must provide translations for ALL texts in the input."},
+                    {"role": "user", "content": prompt}
+                ],
+                json_schema=translation_schema
+            )
             
-        return result
+            # Update UI to show we're processing the response
+            self.ui.info("Processing LLM response...")
+            
+            # Process response
+            result = self.llm_handler.extract_structured_response(response)
+            translations = result.get("translations", [])
+            if len(translations) == 0:  # Fallback for LLMs that don't return translations in the expected format
+                translations = result.get("properties", []).get("translations", [])
+            
+            # Critical check: number of translations must match number of source texts
+            if len(translations) != len(source_texts):
+                error_msg = f"Number of translations ({len(translations)}) does not match number of source texts ({len(source_texts)})"
+                self.ui.error(error_msg)
+                self.logger.critical(f"CRITICAL ERROR: {error_msg}")
+                self.logger.critical("This indicates a fundamental problem with LLM response handling")
+                self.logger.critical(f"Source texts: {source_texts}")
+                self.logger.critical(f"Translations: {translations}")
+                raise Exception(error_msg)
+            
+            return result
+            
+        except Exception as e:
+            error_msg = f"Error during LLM translation: {str(e)}"
+            self.ui.error(error_msg)
+            self.logger.error(error_msg)
+            raise
 
     async def _handle_term_suggestions(self, term_suggestions: List[Dict[str, str]], target_lang: str) -> None:
         """Handle term suggestions by adding them to the term base.
