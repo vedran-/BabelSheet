@@ -231,7 +231,8 @@ class QAHandler:
                     self.logger.warning(f"Found term base issue: {issue}")
                     issues.append(issue)
                 else:
-                    self.logger.debug(f"Term '{source_term}' correctly translated as '{expected_translation}'")
+                    #self.logger.debug(f"Term '{source_term}' correctly translated as '{expected_translation}'")
+                    pass
                 
         if not issues:
             self.logger.debug("No term base issues found")
@@ -323,7 +324,12 @@ class QAHandler:
         
         response = await self.llm_handler.generate_completion(
             messages=[
-                {"role": "system", "content": f"You are a professional translation validator for {target_lang} language."},
+                {"role": "system", "content": (
+                    f"You are a professional translation validator for {target_lang} language. "
+                    "When providing feedback, use simple quotes without escaping them. "
+                    "For example, write 'word' not 'word\\' or \"word\". "
+                    "This ensures the JSON response remains valid."
+                )},
                 {"role": "user", "content": combined_prompt}
             ],
             json_schema=validation_schema
@@ -341,9 +347,28 @@ class QAHandler:
         
         content = content.strip()
         
+        # Fix common escaping issues that might break JSON
+        content = content.replace(r"\'", "'")  # Replace escaped single quotes
+        content = content.replace(r'\"', '"')  # Replace escaped double quotes if any
+        
         # Parse JSON response
         try:
-            result = json.loads(content)
+            # Try to fix any remaining JSON issues
+            try:
+                result = json.loads(content)
+            except json.JSONDecodeError as first_error:
+                # If initial parse fails, try with ast.literal_eval as it's more forgiving
+                import ast
+                try:
+                    # Convert single quotes to double quotes for JSON compatibility
+                    content = content.replace("'", '"')
+                    result = json.loads(content)
+                except json.JSONDecodeError:
+                    # Log the original content for debugging
+                    self.logger.error(f"Failed to parse JSON content: {content}")
+                    self.logger.error(f"Original error: {first_error}")
+                    raise
+            
             validations = result.get("validations", [])
             
             # Convert to list of issue lists, maintaining original order
@@ -358,11 +383,13 @@ class QAHandler:
 
         except json.JSONDecodeError as e:
             self.logger.error(f"Failed to parse LLM response as JSON: {e}")
-            return [[f"LLM validation failed: Could not parse JSON response"]] * len(items)
+            self.logger.error(f"Problematic content: {content}")
+            return [[f"LLM validation failed: Could not parse JSON response. Error: {str(e)}"]] * len(items)
         
-        except AttributeError as e:
-            self.logger.error(f"Failed to parse LLM response as JSON: {e}")
-            return [[f"LLM validation failed: Invalid JSON response"]] * len(items)
+        except Exception as e:
+            self.logger.error(f"Unexpected error while parsing LLM response: {e}")
+            self.logger.error(f"Problematic content: {content}")
+            return [[f"LLM validation failed: {str(e)}"]] * len(items)
 
     async def validate_with_llm(self, source_text: str, translated_text: str, context: str, issues: List[str], target_lang: str) -> List[str]:
         """Use LLM to validate translation quality."""
