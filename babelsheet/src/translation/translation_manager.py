@@ -439,15 +439,27 @@ class TranslationManager:
                                 self.stats['failed_items'].append(failed_item)
                                 self._log_failed_translation(failed_item)
                                 
+                                # Convert issues to list if it's a string
+                                if isinstance(issues, str):
+                                    issues = [issues]
+                                elif isinstance(issues, list):
+                                    issues = [str(i) for i in issues]
+                                
                                 self.ui.complete_translation(missing_item['source_text'], lang, translation, str(issues))
                             else:
                                 # Keep the item in the list for retry, but mark it as in progress
+                                # Convert issues to list if it's a string
+                                if isinstance(issues, str):
+                                    issues = [issues]
+                                elif isinstance(issues, list):
+                                    issues = [str(i) for i in issues]
+                                
                                 self.ui.add_translation_entry(
                                     missing_item['source_text'], 
                                     lang, 
                                     "⏳ Retrying...",
                                     translation,
-                                    str(issues)
+                                    issues=issues
                                 )
                         else:
                             # Only handle as successful if there are no issues

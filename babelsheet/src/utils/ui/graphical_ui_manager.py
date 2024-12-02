@@ -184,8 +184,17 @@ class GraphicalUIManager:
             if entry.get("issues"):
                 text_parts.append("\n" + "=" * 40)
                 text_parts.append("Current Issues:")
-                for issue in entry["issues"]:
-                    text_parts.append(f"• {issue}")
+                issues = entry["issues"]
+                if isinstance(issues, list):
+                    for issue in issues:
+                        if isinstance(issue, list):
+                            text_parts.extend(f"• {i}" for i in issue)
+                        else:
+                            # Handle string issues
+                            text_parts.append(f"• {str(issue)}")
+                else:
+                    # If issues is a string, treat it as a single issue
+                    text_parts.append(f"• {str(issues)}")
             
             # Add previous attempts if any
             if entry.get("last_issues"):
@@ -197,9 +206,9 @@ class GraphicalUIManager:
                         text_parts.append("Issues:")
                         if isinstance(attempt['issues'], list):
                             for issue in attempt['issues']:
-                                text_parts.append(f"• {issue}")
+                                text_parts.append(f"• {str(issue)}")
                         else:
-                            text_parts.append(f"• {attempt['issues']}")
+                            text_parts.append(f"• {str(attempt['issues'])}")
                     text_parts.append("-" * 40)
         
         return "\n".join(text_parts)
@@ -218,45 +227,58 @@ class GraphicalUIManager:
         self.success_label.setText(f"Successful: {self.overall_stats['successful']} ({success_rate:.1f}%)")
         self.failed_label.setText(f"Failed: {self.overall_stats['failed']} ({fail_rate:.1f}%)")
         
-        # Update translation table
+        # Update translation table only if there are changes
         all_entries = list(self._current_batch)
         all_entries.extend(self.translation_history)
         
-        self.table.setRowCount(len(all_entries))
+        # Temporarily disable auto-resizing
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         
+        # Set row count if needed
+        if self.table.rowCount() != len(all_entries):
+            self.table.setRowCount(len(all_entries))
+        
+        # Update all rows
         for i, entry in enumerate(reversed(all_entries)):
-            time_item = self._create_table_item(entry["time"])
-            source_item = self._create_table_item(entry["source"], multiline=True)
-            lang_item = self._create_table_item(entry["lang"])
-            status_item = self._create_table_item(entry["status"])
-            
-            translation = entry["translation"]
-            if isinstance(translation, str):
-                trans_text = self._format_translation_text(translation, entry)
-            else:
-                trans_text = translation.plain
-                
-            translation_item = self._create_table_item(trans_text, multiline=True)
-            
-            # Set colors based on status
-            color = self._get_status_color(entry["status"], entry["type"])
-            for item in [time_item, source_item, lang_item, status_item, translation_item]:
-                item.setBackground(color)
-                
-            self.table.setItem(i, 0, time_item)
-            self.table.setItem(i, 1, source_item)
-            self.table.setItem(i, 2, lang_item)
-            self.table.setItem(i, 3, status_item)
-            self.table.setItem(i, 4, translation_item)
-            
-            # Adjust row height if needed
-            self.table.resizeRowToContents(i)
-            
+            self._update_table_row(i, entry)
+        
+        # Re-enable and perform one-time resize
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        
         # Update status panel
         status_text = ""
         for msg in self.status_messages:
             status_text += f"{msg}\n"
         self.status_text.setText(status_text)
+
+    def _update_table_row(self, row_idx: int, entry: dict):
+        """Update a single table row."""
+        time_item = self._create_table_item(entry["time"])
+        source_item = self._create_table_item(entry["source"], multiline=True)
+        lang_item = self._create_table_item(entry["lang"])
+        status_item = self._create_table_item(entry["status"])
+        
+        translation = entry["translation"]
+        if isinstance(translation, str):
+            trans_text = self._format_translation_text(translation, entry)
+        else:
+            trans_text = translation.plain
+            
+        translation_item = self._create_table_item(trans_text, multiline=True)
+        
+        # Set colors based on status
+        color = self._get_status_color(entry["status"], entry["type"])
+        for item in [time_item, source_item, lang_item, status_item, translation_item]:
+            item.setBackground(color)
+            
+        self.table.setItem(row_idx, 0, time_item)
+        self.table.setItem(row_idx, 1, source_item)
+        self.table.setItem(row_idx, 2, lang_item)
+        self.table.setItem(row_idx, 3, status_item)
+        self.table.setItem(row_idx, 4, translation_item)
+        
+        # Adjust row height if needed
+        self.table.resizeRowToContents(row_idx)
 
     def _check_thread_status(self):
         """Check translation thread status and handle errors."""
@@ -364,26 +386,40 @@ class GraphicalUIManager:
         self.status_messages.append(f"[CRITICAL] {message}")
         self._update_display()
 
+    def _find_existing_entry(self, source: str, lang: str) -> tuple[Optional[dict], Optional[int]]:
+        """Find existing entry in current batch or history."""
+        # Check current batch
+        for i, entry in enumerate(self._current_batch):
+            if entry["source"] == source and entry["lang"] == lang:
+                return entry, i
+        
+        # Check history
+        for i, entry in enumerate(self.translation_history):
+            if entry["source"] == source and entry["lang"] == lang:
+                return entry, i
+                
+        return None, None
+
     def _add_translation_entry(self, source: str, lang: str, status: str, translation: str, entry_type: str, issues: list):
         """Internal add translation handler (runs in main thread)."""
-        # Find existing entry for this source and language
-        existing_entry = None
-        for entry in self._current_batch:
-            if entry["source"] == source and entry["lang"] == lang and entry["type"] == entry_type:
-                existing_entry = entry
-                break
-                
-        if existing_entry:
+        entry, idx = self._find_existing_entry(source, lang)
+        
+        if entry:
+            # If entry was in history, move it to current batch
+            if idx is not None and entry in self.translation_history:
+                self.translation_history.remove(entry)
+                self._current_batch.append(entry)
+            
             # Store current state as previous attempt if there was a translation
-            if existing_entry.get("translation"):
-                if "last_issues" not in existing_entry:
-                    existing_entry["last_issues"] = []
-                existing_entry["last_issues"].append({
-                    "translation": existing_entry["translation"],
-                    "issues": existing_entry.get("issues", [])
+            if entry.get("translation"):
+                if "last_issues" not in entry:
+                    entry["last_issues"] = []
+                entry["last_issues"].append({
+                    "translation": entry["translation"],
+                    "issues": entry.get("issues", [])
                 })
             # Update existing entry
-            existing_entry.update({
+            entry.update({
                 "status": status,
                 "translation": translation,
                 "issues": issues
