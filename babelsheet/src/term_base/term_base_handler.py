@@ -1,7 +1,6 @@
 from typing import Dict, Optional, Any
 import pandas as pd
 from ..sheets.sheets_handler import SheetsHandler, CellData
-from ..utils.ui_manager import create_ui_manager
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,7 +14,7 @@ class TermBaseHandler:
         self.term_column_name = ctx.source_lang
         self.logger = logging.getLogger(__name__)
         # Initialize UI Manager with configuration
-        self.ui = create_ui_manager(ctx.config, ctx.llm_handler)
+        self.ui = ctx.ui
         self.load_term_base()
         
     def load_term_base(self) -> None:

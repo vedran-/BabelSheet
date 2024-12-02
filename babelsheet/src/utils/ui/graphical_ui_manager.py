@@ -4,25 +4,51 @@ from collections import deque
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                           QTableWidget, QTableWidgetItem, QTextEdit, QLabel,
                           QGridLayout, QHeaderView)
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal
 from PyQt6.QtGui import QColor, QPalette
 from rich.text import Text
 from ..llm_handler import LLMHandler
 import threading
+import logging
+import traceback
+
+logger = logging.getLogger(__name__)
+
+class UISignals(QObject):
+    """Signals for thread-safe UI updates."""
+    debug_signal = pyqtSignal(str)
+    info_signal = pyqtSignal(str)
+    warning_signal = pyqtSignal(str)
+    error_signal = pyqtSignal(str)
+    critical_signal = pyqtSignal(str)
+    add_translation_signal = pyqtSignal(str, str, str)
+    complete_translation_signal = pyqtSignal(str, str, str, str)
+    start_new_batch_signal = pyqtSignal()
+    add_term_base_signal = pyqtSignal(str, str, str, str)
 
 class GraphicalUIManager:
     def __init__(self, max_history: int = 100, status_lines: int = 6, llm_handler: LLMHandler = None):
-        """Initialize Graphical UI Manager.
-        
-        Args:
-            max_history: Maximum number of translation entries to keep in history
-            status_lines: Number of status lines to show at the bottom
-            llm_handler: LLMHandler instance
-        """
+        """Initialize Graphical UI Manager."""
         self.app = QApplication([])
         self.window = QMainWindow()
         self.window.setWindowTitle("BabelSheet Translator")
         self.window.resize(1200, 800)
+        
+        # Create signals object in the main thread
+        self.signals = UISignals()
+        # Move signals to the main thread
+        self.signals.moveToThread(self.app.thread())
+        
+        # Connect signals to slots
+        self.signals.debug_signal.connect(self._debug, Qt.ConnectionType.QueuedConnection)
+        self.signals.info_signal.connect(self._info, Qt.ConnectionType.QueuedConnection)
+        self.signals.warning_signal.connect(self._warning, Qt.ConnectionType.QueuedConnection)
+        self.signals.error_signal.connect(self._error, Qt.ConnectionType.QueuedConnection)
+        self.signals.critical_signal.connect(self._critical, Qt.ConnectionType.QueuedConnection)
+        self.signals.add_translation_signal.connect(self._add_translation_entry, Qt.ConnectionType.QueuedConnection)
+        self.signals.complete_translation_signal.connect(self._complete_translation, Qt.ConnectionType.QueuedConnection)
+        self.signals.start_new_batch_signal.connect(self._start_new_batch, Qt.ConnectionType.QueuedConnection)
+        self.signals.add_term_base_signal.connect(self._add_term_base_entry, Qt.ConnectionType.QueuedConnection)
         
         # Set dark fusion theme
         self.app.setStyle("Fusion")
@@ -154,88 +180,149 @@ class GraphicalUIManager:
             self.table.setItem(i, 3, translation_item)
                 
     def start(self):
-        """Start the graphical interface in a separate thread."""
-        self.window.show()
-        # Run the Qt event loop in a separate thread
-        self.qt_thread = threading.Thread(target=self.app.exec)
-        self.qt_thread.daemon = True  # Make thread daemon so it exits when main program exits
-        self.qt_thread.start()
+        """Start the graphical interface."""
+        try:
+            self.window.show()
+            self.app.exec()
+        except Exception as e:
+            logger.error(f"Error in GraphicalUIManager: {str(e)}")
+            logger.error(traceback.format_exc())
+            self.stop()
+            raise
         
     def stop(self):
         """Stop the graphical interface."""
-        self.app.quit()
-        if hasattr(self, 'qt_thread'):
-            self.qt_thread.join()
+        try:
+            if self.app:
+                self.app.quit()
+        except Exception as e:
+            logger.error(f"Error stopping GraphicalUIManager: {str(e)}")
+            logger.error(traceback.format_exc())
         
-    def add_translation_entry(self, source: str, lang: str, status: str = "⏳", 
-                            translation: str = "", error: str = "", entry_type: str = "translation"):
-        """Add a new translation entry."""
-        time = datetime.now().strftime("%H:%M:%S")
-        
+    def debug(self, message: str):
+        """Thread-safe debug message."""
+        self.signals.debug_signal.emit(message)
+
+    def info(self, message: str):
+        """Thread-safe info message."""
+        self.signals.info_signal.emit(message)
+
+    def warning(self, message: str):
+        """Thread-safe warning message."""
+        self.signals.warning_signal.emit(message)
+
+    def error(self, message: str):
+        """Thread-safe error message."""
+        self.signals.error_signal.emit(message)
+
+    def critical(self, message: str):
+        """Thread-safe critical message."""
+        self.signals.critical_signal.emit(message)
+
+    def add_translation_entry(self, source: str, lang: str, status: str = "⏳"):
+        """Thread-safe add translation entry."""
+        self.signals.add_translation_signal.emit(source, lang, status)
+
+    def complete_translation(self, source: str, lang: str, translation: str, error: str = ""):
+        """Thread-safe complete translation."""
+        self.signals.complete_translation_signal.emit(source, lang, translation, error)
+
+    def start_new_batch(self):
+        """Thread-safe start new batch."""
+        self.signals.start_new_batch_signal.emit()
+
+    def add_term_base_entry(self, term: str, lang: str, translation: str = "", comment: str = ""):
+        """Thread-safe add term base entry."""
+        self.signals.add_term_base_signal.emit(term, lang, translation, comment)
+
+    def _debug(self, message: str):
+        """Internal debug handler (runs in main thread)."""
+        self.status_messages.append(f"[DEBUG] {message}")
+        self._update_display()
+
+    def _info(self, message: str):
+        """Internal info handler (runs in main thread)."""
+        self.status_messages.append(f"[INFO] {message}")
+        self._update_display()
+
+    def _warning(self, message: str):
+        """Internal warning handler (runs in main thread)."""
+        self.status_messages.append(f"[WARNING] {message}")
+        self._update_display()
+
+    def _error(self, message: str):
+        """Internal error handler (runs in main thread)."""
+        self.status_messages.append(f"[ERROR] {message}")
+        self._update_display()
+
+    def _critical(self, message: str):
+        """Internal critical handler (runs in main thread)."""
+        self.status_messages.append(f"[CRITICAL] {message}")
+        self._update_display()
+
+    def _add_translation_entry(self, source: str, lang: str, status: str):
+        """Internal add translation handler (runs in main thread)."""
         entry = {
-            "time": time,
-            "type": entry_type,
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "type": "translation",
             "source": source,
             "lang": lang,
             "status": status,
-            "translation": translation if translation else ""
+            "translation": ""
         }
-        
-        # Update or add entry
-        for i, batch_entry in enumerate(self._current_batch):
-            if batch_entry["source"] == source and batch_entry["lang"] == lang:
-                self._current_batch[i] = entry
-                return
-                
         self._current_batch.append(entry)
-        
-    def complete_translation(self, source: str, lang: str, translation: str, error: str = ""):
-        """Mark a translation as complete."""
-        status = "❌" if error else "✓"
-        
-        self.overall_stats['total_attempts'] += 1
-        if error:
-            self.overall_stats['failed'] += 1
-        else:
-            self.overall_stats['successful'] += 1
-            
-        self.add_translation_entry(source, lang, status, translation, error)
-        
-    def start_new_batch(self, llm_handler=None):
-        """Move current batch to history and start a new one."""
+        self._update_display()
+
+    def _complete_translation(self, source: str, lang: str, translation: str, error: str):
+        """Internal complete translation handler (runs in main thread)."""
+        for entry in self._current_batch:
+            if entry["source"] == source and entry["lang"] == lang:
+                entry["translation"] = translation
+                entry["status"] = "✓" if not error else "❌"
+                self._update_display()
+                return
+
+    def _start_new_batch(self):
+        """Internal start new batch handler (runs in main thread)."""
         self.translation_history.extend(self._current_batch)
         self._current_batch = []
+        self._update_display()
         
-    def add_status(self, message: str, level: str = "info"):
-        """Add a status message."""
-        time = datetime.now().strftime("%H:%M:%S")
-        
-        color_map = {
-            "debug": "gray",
-            "info": "white",
-            "warning": "yellow",
-            "error": "red",
-            "critical": "darkred"
+    def _add_term_base_entry(self, term: str, lang: str, translation: str, comment: str):
+        """Internal add term base entry handler (runs in main thread)."""
+        status = "📖"
+        full_translation = translation
+        if comment:
+            full_translation += f" (Comment: {comment})"
+            
+        entry = {
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "type": "term_base",
+            "source": term,
+            "lang": lang,
+            "status": status,
+            "translation": full_translation
         }
+        self._current_batch.append(entry)
+        self._update_display()
         
-        color = color_map.get(level, "white")
-        formatted_message = f'<font color="{color}">[{time}] {message}</font><br>'
-        self.status_text.append(formatted_message)
-        
-    def info(self, message: str):
-        self.add_status(message, "info")
-        
-    def warning(self, message: str):
-        self.add_status(message, "warning")
-        
-    def error(self, message: str):
-        self.add_status(message, "error")
-        
-    def critical(self, message: str):
-        self.add_status(message, "critical")
-        
-    def debug(self, message: str):
-        self.add_status(message, "debug")
+    def _add_term_base_entry(self, term: str, lang: str, translation: str, comment: str):
+        """Internal add term base entry handler (runs in main thread)."""
+        status = "📖"
+        full_translation = translation
+        if comment:
+            full_translation += f" (Comment: {comment})"
+            
+        entry = {
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "type": "term_base",
+            "source": term,
+            "lang": lang,
+            "status": status,
+            "translation": full_translation
+        }
+        self._current_batch.append(entry)
+        self._update_display()
         
     def add_term_base_entry(self, term: str, lang: str, translation: str = "", comment: str = ""):
         """Add a term base entry."""

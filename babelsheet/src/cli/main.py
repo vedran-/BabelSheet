@@ -3,6 +3,9 @@ import asyncio
 import click
 import yaml
 import os
+import threading
+import queue
+import traceback
 from typing import Dict, Any, List
 from ..utils.auth import get_credentials
 from ..utils.llm_handler import LLMHandler
@@ -11,6 +14,7 @@ from ..translation.translation_manager import TranslationManager
 from ..term_base.term_base_handler import TermBaseHandler
 import logging
 import pandas as pd
+from ..utils.ui_manager import create_ui_manager
 
 logger = logging.getLogger(__name__)
 
@@ -104,19 +108,6 @@ def setup_logging(verbose_level: int):
                 self._log(logging.TRACE, message, args, **kwargs)
         logging.Logger.trace = trace
 
-def async_command(f):
-    """Decorator to run async click commands."""
-    def wrapper(*args, **kwargs):
-        return asyncio.run(f(*args, **kwargs))
-        """
-        try:
-            return asyncio.run(f(*args, **kwargs))
-        except Exception as e:
-            logger.error(f"Error during async execution: {str(e)}")
-            sys.exit(1)
-        """
-    return wrapper
-
 @click.group()
 @click.option('--config', default='config/config.yaml', help='Path to configuration file')
 @click.pass_context
@@ -171,13 +162,7 @@ def translate_command(ctx, target_langs, sheet_id, verbose, simple_output):
     # Ensure we have a sheet_id from somewhere
     if not ctx.obj['config']['google_sheets']['spreadsheet_id']:
         raise click.UsageError("Spreadsheet ID must be provided either in config or via --sheet-id option")
-    
-    return async_command(translate)(ctx, target_langs, verbose)
 
-async def translate(ctx, target_langs, verbose):
-    """Translate missing entries in the specified Google Sheet."""
-    logger = logging.getLogger(__name__)
-    
     # Split target languages if provided as comma-separated string
     ctx.config = ctx.obj['config']
     ctx.source_lang = ctx.config['languages']['source']
@@ -192,49 +177,110 @@ async def translate(ctx, target_langs, verbose):
         config=llm_config
     )
 
-    # Initialize SheetsHandler
-    creds = get_credentials()
-    ctx.spreadsheet_id = ctx.config['google_sheets']['spreadsheet_id']
-    ctx.sheets_handler = SheetsHandler(ctx, creds)
+    # Set UI type to graphical
+    if 'ui' not in ctx.config:
+        ctx.config['ui'] = {}
+    ctx.config['ui']['type'] = 'graphical'
 
-    # Initialize TermBaseHandler
-    ctx.term_base_handler = TermBaseHandler(ctx)
-    logger.debug(f"Successfully initialized Term Base handler with sheet: {ctx.term_base_handler.sheet_name}")
+    ctx.ui = create_ui_manager(ctx.config, ctx.llm_handler)
 
-    """
-    #terms = ctx.term_base_handler.get_terms_for_language(ctx.target_langs[0])
-    #logger.info(terms)
+    # Create a queue for thread communication
+    error_queue = queue.Queue()
 
-    print('----------------')
-    print(ctx.sheets_handler.get_sheet_data('Sheet1'))
-    ctx.sheets_handler.modify_cell_data('Sheet1', 1, 3, 'test')
-    print('----------------')
-    print(ctx.sheets_handler.get_sheet_data('Sheet1'))
-    ctx.sheets_handler.modify_cell_data('Sheet1', 2, 3, 'test2')
-    print('----------------')
-    print(ctx.sheets_handler.get_sheet_data('Sheet1'))
-    print('----------------')
-    ctx.sheets_handler.save_changes()
-    sys.exit()
-    """
+    # Create and start translation thread
+    def run_translate():
+        try:
+            asyncio.run(translate(ctx, target_langs, verbose))
+        except Exception as e:
+            error_queue.put((e, traceback.format_exc()))
+            logger.error(f"Translation thread error: {str(e)}")
+            logger.error(traceback.format_exc())
 
-    # Initialize TranslationManager with the config and handlers
-    translation_manager = TranslationManager(
-        config=ctx.config,
-        sheets_handler=ctx.sheets_handler,
-        term_base_handler=ctx.term_base_handler,
-        llm_handler=ctx.llm_handler
-    )
+    translation_thread = threading.Thread(target=run_translate)
+    translation_thread.daemon = True
+    translation_thread.start()
 
-    # Translate all sheets using the new language-based approach
-    await translation_manager.translate_all_sheets(
-        source_lang=ctx.source_lang,
-        target_langs=ctx.target_langs,
-        use_term_base=True
-    )
+    # Start UI in main thread
+    try:
+        # Start a timer to check the error queue periodically
+        def check_errors():
+            try:
+                error, tb = error_queue.get_nowait()
+                logger.critical("Error in translation thread:")
+                logger.critical(tb)
+                ctx.ui.stop()
+                sys.exit(1)
+            except queue.Empty:
+                if ctx.ui and hasattr(ctx.ui, 'window'):
+                    ctx.ui.window.after(100, check_errors)
 
-    logger.debug("Translation completed")
-    translation_manager.ui.print_overall_stats()
+        ctx.ui.start()
+        check_errors()  # Start error checking
+
+        # Keep the main thread running
+        while translation_thread.is_alive():
+            translation_thread.join(0.1)
+
+    except KeyboardInterrupt:
+        logger.info("Translation interrupted by user")
+        ctx.ui.stop()
+        sys.exit(1)
+    except Exception as e:
+        logger.critical(f"Main thread error: {str(e)}")
+        logger.critical(traceback.format_exc())
+        ctx.ui.stop()
+        sys.exit(1)
+
+    # Check if there were any errors in the queue
+    try:
+        error, tb = error_queue.get_nowait()
+        logger.critical("Error in translation thread:")
+        logger.critical(tb)
+        ctx.ui.stop()
+        sys.exit(1)
+    except queue.Empty:
+        pass
+
+    ctx.ui.stop()
+
+async def translate(ctx, target_langs, verbose):
+    """Translate missing entries in the specified Google Sheet."""
+    logger = logging.getLogger(__name__)
+
+    try:
+        # Initialize SheetsHandler
+        creds = get_credentials()
+        ctx.spreadsheet_id = ctx.config['google_sheets']['spreadsheet_id']
+        ctx.sheets_handler = SheetsHandler(ctx, creds)
+        ctx.sheets_handler.initialize()
+
+        # Initialize TermBaseHandler
+        ctx.term_base_handler = TermBaseHandler(ctx)
+        logger.debug(f"Successfully initialized Term Base handler with sheet: {ctx.term_base_handler.sheet_name}")
+
+        # Initialize TranslationManager with the config and handlers
+        translation_manager = TranslationManager(
+            config=ctx.config,
+            sheets_handler=ctx.sheets_handler,
+            term_base_handler=ctx.term_base_handler,
+            llm_handler=ctx.llm_handler,
+            ui=ctx.ui
+        )
+
+        # Translate all sheets
+        await translation_manager.translate_all_sheets(
+            source_lang=ctx.source_lang,
+            target_langs=ctx.target_langs,
+            use_term_base=True
+        )
+
+        logger.debug("Translation completed")
+        translation_manager.ui.print_overall_stats()
+
+    except Exception as e:
+        logger.error(f"Error in translate function: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise  # Re-raise the exception to be caught by the thread handler
 
 @cli.command()
 @click.pass_context

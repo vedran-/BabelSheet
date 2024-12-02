@@ -26,8 +26,10 @@ class SheetsHandler:
         self.service = None
         self._sheets: Dict[str, pd.DataFrame] = {}  # sheet name -> sheet data
         self.credentials = credentials
+
+    def initialize(self):
         self._initialize_service()
-        self.load_spreadsheet(ctx.spreadsheet_id)
+        self.load_spreadsheet(self.ctx.spreadsheet_id)
 
     def _initialize_service(self) -> None:
         """Initialize the Google Sheets service."""

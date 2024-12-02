@@ -1,21 +1,21 @@
 from typing import Optional, List, Dict, Any, Tuple, AsyncGenerator
-from ..utils.llm_handler import LLMHandler
+from datetime import datetime
 import pandas as pd
 import json
+import asyncio
+import logging
+import pathlib
+from ..utils.llm_handler import LLMHandler
+from ..utils.ui_manager import UIManager
 from ..utils.qa_handler import QAHandler
 from ..term_base.term_base_handler import TermBaseHandler
 from ..sheets.sheets_handler import SheetsHandler, CellData
-from ..utils.ui_manager import create_ui_manager
-import asyncio
-import logging
-from datetime import datetime
-import pathlib
 
 logger = logging.getLogger(__name__)
 
 class TranslationManager:
     def __init__(self, config: Dict, sheets_handler: SheetsHandler, term_base_handler: TermBaseHandler,
-                 llm_handler: LLMHandler):
+                 llm_handler: LLMHandler, ui: UIManager):
         """Initialize Translation Manager."""
         self.config = config
         self.llm_handler = llm_handler
@@ -39,7 +39,7 @@ class TranslationManager:
         self.retry_delay = llm_config.get('retry_delay', 1)  # seconds
         
         # Initialize UI Manager
-        self.ui = create_ui_manager(config, llm_handler)
+        self.ui = ui
         
         # Initialize statistics
         self.stats = {
@@ -320,7 +320,6 @@ class TranslationManager:
             target_langs: List of target language codes
             use_term_base: Whether to use the term base for translations
         """
-        
         # Now collect and process all other sheets by language
         all_missing_translations = await self.collect_all_missing_translations(source_lang, target_langs)
         
@@ -337,6 +336,7 @@ class TranslationManager:
         # Save all changes
         self.sheets_handler.save_changes()
 
+
     async def _process_missing_translations(self, df: Optional[pd.DataFrame], missing_translations: Dict[str, List[Dict[str, Any]]], use_term_base: bool) -> None:
         """Process missing translations, either for a single sheet or across all sheets.
         
@@ -351,7 +351,6 @@ class TranslationManager:
         processed_items = 0
         source_lang = self.config['languages']['source']
         
-        self.ui.start()
         self.ui.debug(f"Starting batch translation for {len(missing_translations)} languages ({total_items} items total)")
 
         last_lang = None
@@ -463,8 +462,9 @@ class TranslationManager:
             
             if skipped_items:
                 self.ui.warning(f"Skipped {len(skipped_items)} items due to max retries")
-        finally:
-            self.ui.stop()
+        except Exception as e:
+            logger.error(f"Error during translation processing: {str(e)}")
+            raise
 
     def _prepare_texts_with_contexts(self, source_texts: List[str], contexts: List[Dict[str, Any]], issues: List[Dict[str, Any]], term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
         """Prepare texts with their contexts for translation.
@@ -744,7 +744,7 @@ Return translations and term suggestions in a structured JSON format."""
             # Update results with LLM validation issues
             for batch_idx, result_idx in enumerate(llm_validation_indexes):
                 translated_text, current_issues = results[result_idx]
-                llm_issues = llm_results[batch_idx]
+                llm_issues = llm_results[batch_idx] if len(llm_results) >= batch_idx else ["Invalid JSON response from LLM"]
                 results[result_idx] = (translated_text, current_issues + llm_issues)
         
         return results
