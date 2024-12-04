@@ -407,7 +407,6 @@ class GraphicalUIManager:
     def _on_translation_ended(self, item):
         """Internal complete translation handler (runs in main thread)."""
         is_error = item.get("error")
-        item["status"] = StatusIcons.SUCCESS if not is_error else StatusIcons.FAILED
         self.overall_stats["total_attempts"] += 1
         if is_error:
             self.overall_stats["failed"] += 1

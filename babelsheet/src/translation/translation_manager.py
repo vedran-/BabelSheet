@@ -441,6 +441,7 @@ class TranslationManager:
                                 self.stats['failed_items'].append(failed_item)
                                 self._log_failed_translation(failed_item)
                                 
+                                missing_item['error'] = f"Too many retries ({len(missing_item['last_issues'])})"
                                 missing_item['status'] = StatusIcons.FAILED + " Failed"
                                 self.ui.on_translation_ended(missing_item)
                             else:
