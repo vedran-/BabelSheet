@@ -6,9 +6,6 @@ google_sheets:
     - "https://www.googleapis.com/auth/drive.readonly"
   spreadsheet_id: null  # Optional: can be provided via CLI
 
-output:
-  dir: "translation_logs"  # Directory for storing translation logs and reports
-
 llm:
   api_key: ""  # Set via LLM_API_KEY environment variable
   model: "claude-3-5-sonnet-20241022"  # Recommended models: claude-3-5-sonnet-20241022, claude-3-5-sonnet-20240620, gpt-4o
@@ -39,15 +36,15 @@ context_columns:
   ignore_case: true  # Will match regardless of case
 
 term_base:
+  add_terms_to_term_base: true  # Add suggested terms to term base
   sheet_name: "term_base"  # Name of the sheet containing term base
-  columns:
-    term: "EN TERM"
-    comment: "COMMENT"
-    translation_prefix: "TRANSLATION_"
 
 languages:
   source: "en"
   target: ["es", "fr", "de"]  # Default target languages if not specified via CLI
 
 ui:
-  simple_output: false  # If true, use simple console output instead of fancy UI
+  type: graphical  # Use graphical output mode
+
+output:
+  dir: "translation_logs"  # Directory for storing translation logs and reports

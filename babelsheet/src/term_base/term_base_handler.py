@@ -57,7 +57,7 @@ class TermBaseHandler:
             for idx in self.sheet_data.attrs['context_column_indexes']:
                 if row[idx] is not None and not row[idx].is_empty():
                     combined_context.append(row[idx].value)
-            combined_context = ' '.join(combined_context)
+            combined_context = '; '.join(combined_context)
 
             terms[term] = { 
                 'translation': translation,

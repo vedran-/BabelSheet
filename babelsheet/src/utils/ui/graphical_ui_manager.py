@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 
 class StatusIcons:
     WAITING = " "
-    TRANSLATING = "📖📝✍️"
+    TRANSLATING = "✍️"
     VALIDATING = "🔍"
-    RETRYING = "⟳🔄♻️🔁⭮"
+    RETRYING = "⟳"
     SUCCESS = "✔️"
     FAILED = "❌"
     INFO = "💡"

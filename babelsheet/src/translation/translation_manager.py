@@ -388,6 +388,7 @@ class TranslationManager:
                 # Perform translation in background
                 contexts = [item['context'] for item in batch]
                 
+                # TODO
                 #try:
                 if True:
                     # Perform the actual translation
@@ -675,7 +676,8 @@ class TranslationManager:
         term_suggestions = result.get("term_suggestions", [])
         
         # Handle term suggestions
-        await self._handle_term_suggestions(term_suggestions, target_lang)
+        if self.config.get('term_base', {}).get('add_terms_to_term_base', False):
+            await self._handle_term_suggestions(term_suggestions, target_lang)
         
         for item, translation in zip(items, translations):
             item["status"] = StatusIcons.VALIDATING + " Validating"

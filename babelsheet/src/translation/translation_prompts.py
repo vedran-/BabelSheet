@@ -35,18 +35,18 @@ class TranslationPrompts:
             exc = []
             for key, value in context_dict.items():
                 if value:  # Only add non-empty context
-                    exc.append(f"<{self.escape(key)}>{self.escape(str(value))}</{self.escape(key)}>")
+                    exc.append(f"{self.escape(key)}: {self.escape(str(value))}")
             
             # Add non-translatable terms to context if any exist
-            if text_terms:
+            if text_terms and len(text_terms) > 0:
                 terms_str = ", ".join(f"'{term}'" for term in text_terms)
                 exc.append(f"<non_translatable_terms>The following terms must be preserved exactly as is: {terms_str}</non_translatable_terms>")
             
             # Add issues
             for issue in issue_list:
-                exc.append(f"<FAILED_TRANSLATION>'{self.escape(issue['translation'])}' error: {self.escape(issue['issues'])}</FAILED_TRANSLATION>")
+                exc.append(f"FAILED_TRANSLATION: '{self.escape(issue['translation'])}' failed because: {self.escape(issue['issues'])}")
             
-            expanded_context = "".join(exc)
+            expanded_context = "\n".join(exc)
             texts_with_contexts.append(f"<text id='{i+1}'>{text}</text>\n<context id='{i+1}'>{expanded_context}</context>")
         
         return "\n\n".join(texts_with_contexts)
@@ -69,10 +69,11 @@ specialized for casual mobile games. Your task is to provide accurate and cultur
 
 """
         # Add term base at the beginning if available
-        if term_base:
-            prompt += "Term Base References (use these translations consistently):\n"
-            prompt += json.dumps(term_base, indent=2, ensure_ascii=False)
-            prompt += "\n\n"
+        if term_base and len(term_base) > 0:
+            prompt += "Term Base References (use these for translation consistency):\n"
+            for term, data in term_base.items():
+                prompt += f"- {term}: {data['translation']} (Context: {data['context']})\n"
+            prompt += "\n"
 
         prompt += f"""Texts to Translate:
 {combined_texts}
@@ -82,14 +83,14 @@ Translation Rules:
 - Preserve all non-translatable terms exactly as specified in each text's context
 - Don't translate special terms which match the following patterns: {str(self.config['qa']['non_translatable_patterns'])}
 - Keep appropriate format (uppercase/lowercase)
-- Replace newlines with \\n
+- Replace newlines with \\n, and quotes with \\" or \\'
 - Keep translations lighthearted and fun, but precise
 - Keep translations concise to fit UI elements
 - Localize all output text, except special terms between markup characters
 - It is ok to be polarizing, don't be neutral - but avoid offensive language
 
 Critical Instructions for Previously Failed Translations:
-When you see <FAILED_TRANSLATION> tags in the context:
+When you see FAILED_TRANSLATION tags in the context:
 1. These represent previous translation attempts that were rejected
 2. Study each failed translation and its error message carefully
 3. Identify specific issues that caused the rejection

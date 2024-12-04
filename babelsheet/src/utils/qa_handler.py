@@ -111,7 +111,7 @@ class QAHandler:
             valid_words = []
             for word in words:
                 cleaned = clean_word(word)
-                if cleaned:  # Include if it has at least one letter
+                if len(cleaned) > 2:  # Include if it has more than 2 characters
                     valid_words.append(cleaned)
             
             if not valid_words:
@@ -326,8 +326,8 @@ class QAHandler:
             messages=[
                 {"role": "system", "content": (
                     f"You are a professional translation validator for {target_lang} language. "
-                    "When providing feedback, use simple quotes without escaping them. "
-                    "For example, write 'word' not 'word\\' or \"word\". "
+                    "When providing feedback, use simple single quotes without escaping them. "
+                    "For example, write 'word' not \\'word\\' or \"word\". "
                     "This ensures the JSON response remains valid."
                 )},
                 {"role": "user", "content": combined_prompt}
