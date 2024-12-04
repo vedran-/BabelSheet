@@ -15,7 +15,7 @@
             "args": [
                 "translate",
                 "--target-langs",
-                "es,fr",
+                "es,hr,fr",
                 "-v"
             ]
         },

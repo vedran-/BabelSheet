@@ -1,5 +1,6 @@
-from typing import Optional, List, Dict, Any, Tuple, AsyncGenerator
 from datetime import datetime
+from typing import Optional, List, Dict, Any, Tuple, AsyncGenerator
+from random import randint
 import pandas as pd
 import json
 import asyncio
@@ -388,7 +389,7 @@ class TranslationManager:
                 # Perform translation in background
                 contexts = [item['context'] for item in batch]
                 
-                # TODO
+                # TODO - enable try/catch again
                 #try:
                 if True:
                     # Perform the actual translation
@@ -415,8 +416,6 @@ class TranslationManager:
                             # Store current attempt before updating issues
                             if 'last_issues' not in missing_item:
                                 missing_item['last_issues'] = []
-
-                            
                             missing_item['last_issues'].insert(0, {
                                 'translation': translation,
                                 'issues': issues

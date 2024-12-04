@@ -39,14 +39,17 @@ class TranslationPrompts:
             
             # Add non-translatable terms to context if any exist
             if text_terms and len(text_terms) > 0:
-                terms_str = ", ".join(f"'{term}'" for term in text_terms)
-                exc.append(f"<non_translatable_terms>The following terms must be preserved exactly as is: {terms_str}</non_translatable_terms>")
+                terms_str = ", ".join(f"`{term}`" for term in text_terms)
+                exc.append(f"NON-TRANSLATABLE TERMS, which must be preserved exactly as is: {terms_str}")
             
             # Add issues
             for issue in issue_list:
-                exc.append(f"FAILED_TRANSLATION: '{self.escape(issue['translation'])}' failed because: {self.escape(issue['issues'])}")
+                exc.append(f"FAILED_TRANSLATION: `{self.escape(issue['translation'])}` failed because: {self.escape(issue['issues'])}")
             
             expanded_context = "\n".join(exc)
+            if len(exc) > 0:
+                expanded_context += "\n"
+
             texts_with_contexts.append(f"<text id='{i+1}'>{text}</text>\n<context id='{i+1}'>{expanded_context}</context>")
         
         return "\n\n".join(texts_with_contexts)

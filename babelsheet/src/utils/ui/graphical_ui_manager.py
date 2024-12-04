@@ -247,13 +247,14 @@ class GraphicalUIManager:
         
         translation = entry.get("translation", "")
 
-        if entry.get("last_issues"):
-            translation += "\n" + "=" * 40
-            translation += "\nPrevious Attempts:"
+        last_issues = entry.get("last_issues")
+        if last_issues and len(last_issues) > 0:
+            translation += "\n" + "-" * 40
+            translation += f"\nPrevious {len(last_issues)} failed attempts:"
             for attempt in entry["last_issues"]:
-                translation += f"\n▶ Translation: '{attempt['translation']}'"
+                translation += f"\n● `{attempt['translation']}`"
                 if attempt['issues']:
-                    translation += "\n * " + "\n *".join(attempt['issues'])
+                    translation += "\n    - " + "\n    -".join(attempt['issues'])
 
         translation_item = self._create_table_item(translation, multiline=True)
         
@@ -320,47 +321,63 @@ class GraphicalUIManager:
     def debug(self, message: str):
         """Thread-safe debug message."""
         self.signals.debug_signal.emit(message)
-
-    def info(self, message: str):
-        """Thread-safe info message."""
-        self.signals.info_signal.emit(message)
-
-    def warning(self, message: str):
-        """Thread-safe warning message."""
-        self.signals.warning_signal.emit(message)
-
-    def error(self, message: str):
-        """Thread-safe error message."""
-        self.signals.error_signal.emit(message)
-
-    def critical(self, message: str):
-        """Thread-safe critical message."""
-        self.signals.critical_signal.emit(message)
-
     def _debug(self, message: str):
         """Internal debug handler (runs in main thread)."""
         self.status_messages.append(f"[DEBUG] {message}")
         self._ui_update_console()
 
+    def info(self, message: str):
+        """Thread-safe info message."""
+        self.signals.info_signal.emit(message)
     def _info(self, message: str):
         """Internal info handler (runs in main thread)."""
         self.status_messages.append(f"[INFO] {message}")
         self._ui_update_console()
 
+    def warning(self, message: str):
+        """Thread-safe warning message."""
+        self.signals.warning_signal.emit(message)
     def _warning(self, message: str):
         """Internal warning handler (runs in main thread)."""
         self.status_messages.append(f"[WARNING] {message}")
         self._ui_update_console()
 
+    def error(self, message: str):
+        """Thread-safe error message."""
+        self.signals.error_signal.emit(message)
     def _error(self, message: str):
         """Internal error handler (runs in main thread)."""
         self.status_messages.append(f"[ERROR] {message}")
         self._ui_update_console()
 
+    def critical(self, message: str):
+        """Thread-safe critical message."""
+        self.signals.critical_signal.emit(message)
     def _critical(self, message: str):
         """Internal critical handler (runs in main thread)."""
         self.status_messages.append(f"[CRITICAL] {message}")
         self._ui_update_console()
+
+    def print_overall_stats(self):
+        """Print overall statistics."""
+        total = self.overall_stats['total_attempts']
+        if total > 0:
+            success_rate = (self.overall_stats['successful'] / total) * 100
+            fail_rate = (self.overall_stats['failed'] / total) * 100
+        else:
+            success_rate = fail_rate = 0.0
+            
+        self.info("\n📊 Overall Translation Statistics")
+        self.info("─" * 40)
+        self.info(f"Total Translation Attempts: {total}")
+        self.info(f"Successful Translations: {self.overall_stats['successful']} ({success_rate:.1f}%)")
+        self.info(f"Failed Translations: {self.overall_stats['failed']} ({fail_rate:.1f}%)")
+
+        if self.llm_handler:
+            usage_stats = self.llm_handler.get_usage_stats()
+            self.info("─" * 40)
+            self.info(f"Total tokens used: {usage_stats['total_tokens']} ({usage_stats['prompt_tokens']} prompt + {usage_stats['completion_tokens']} completion)")
+            self.info(f"Total cost: ${usage_stats['total_cost']:.4f}")
 
 
     def set_translation_list(self, missing_translations: Dict[str, List[Dict[str, Any]]]):
@@ -429,7 +446,6 @@ class GraphicalUIManager:
         if comment:
             full_translation += f" (Comment: {comment})"
         self.on_translation_started(term, lang, status, full_translation, [], "term_base")
-        
     def _add_term_base_entry(self, term: str, lang: str, translation: str, comment: str):
         """Internal add term base entry handler (runs in main thread)."""
         return
@@ -450,24 +466,3 @@ class GraphicalUIManager:
         #self._current_batch.append(entry)
         #self._update_display()
 
-
-    def print_overall_stats(self):
-        """Print overall statistics."""
-        total = self.overall_stats['total_attempts']
-        if total > 0:
-            success_rate = (self.overall_stats['successful'] / total) * 100
-            fail_rate = (self.overall_stats['failed'] / total) * 100
-        else:
-            success_rate = fail_rate = 0.0
-            
-        self.info("\n📊 Overall Translation Statistics")
-        self.info("─" * 40)
-        self.info(f"Total Translation Attempts: {total}")
-        self.info(f"Successful Translations: {self.overall_stats['successful']} ({success_rate:.1f}%)")
-        self.info(f"Failed Translations: {self.overall_stats['failed']} ({fail_rate:.1f}%)")
-
-        if self.llm_handler:
-            usage_stats = self.llm_handler.get_usage_stats()
-            self.info("─" * 40)
-            self.info(f"Total tokens used: {usage_stats['total_tokens']} ({usage_stats['prompt_tokens']} prompt + {usage_stats['completion_tokens']} completion)")
-            self.info(f"Total cost: ${usage_stats['total_cost']:.4f}")

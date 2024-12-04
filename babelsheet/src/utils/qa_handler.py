@@ -5,7 +5,8 @@ import logging
 import json
 
 class QAHandler:
-    def __init__(self, max_length: Optional[int] = None, llm_handler: Optional[LLMHandler] = None, non_translatable_patterns: Optional[List[Dict[str, str]]] = None):
+    def __init__(self, max_length: Optional[int] = None, llm_handler: Optional[LLMHandler] = None, 
+                 non_translatable_patterns: Optional[List[Dict[str, str]]] = None):
         """Initialize QA Handler.
         
         Args:
@@ -18,6 +19,7 @@ class QAHandler:
         self.logger = logging.getLogger(__name__)
         
         # Validate and compile patterns if provided
+        self.non_translatable_patterns = non_translatable_patterns
         if non_translatable_patterns:
             try:
                 self.patterns = self._compile_patterns(non_translatable_patterns)
@@ -262,9 +264,16 @@ class QAHandler:
                 "- Verify that all term base translations are used consistently\n"
                 "- Check that game-specific terms match their approved translations\n"
                 "- Ensure special terms are preserved exactly as specified\n"
-                "- Flag any deviations from term base translations\n\n"
-                "Term Base Entries:\n"
+                "- Flag any deviations from term base translations\n"
             )
+
+            if self.non_translatable_patterns and len(self.non_translatable_patterns) > 0:
+                combined_prompt += (
+                    "- Exception to this rule are non-translatable terms, which must be preserved exactly as is\n"  
+                    f"- Non-translatable terms will match the following patterns: {str(self.non_translatable_patterns)}\n"
+                )
+
+            combined_prompt += "\nTerm Base Entries:\n"
             for term, data in term_base.items():
                 combined_prompt += f"- {term}: {data['translation']} (Context: {data['context']})\n"
             combined_prompt += "\n"
@@ -384,7 +393,7 @@ class QAHandler:
         except json.JSONDecodeError as e:
             self.logger.error(f"Failed to parse LLM response as JSON: {e}")
             self.logger.error(f"Problematic content: {content}")
-            return [[f"LLM validation failed: Could not parse JSON response. Error: {str(e)}"]] * len(items)
+            return [[f"LLM validation failed: Could not parse JSON response. Did you use double quotes by mistake?"]] * len(items)
         
         except Exception as e:
             self.logger.error(f"Unexpected error while parsing LLM response: {e}")
