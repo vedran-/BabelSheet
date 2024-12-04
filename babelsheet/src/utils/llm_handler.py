@@ -109,7 +109,7 @@ class LLMHandler:
 
         if json_schema:
             json_requirement = f"You must respond ONLY with a valid JSON matching this schema: {json.dumps(json_schema)}." \
-                              "Make sure to escape all quotes, newlines, and other special characters."
+                              "Make sure to escape all double quotes with \\\", and newlines with \\n."
             
             # For Anthropic, we need to format the system message differently
             if "anthropic" in self.model.lower():

@@ -361,6 +361,7 @@ class TranslationManager:
                         col=item['col_idx'],
                         value=existing_translation
                     )
+                    item['translation'] = existing_translation
                     item['status'] = StatusIcons.SUCCESS + " (from dictionary)"
                     items.pop(item_idx)
                     self.ui.on_translation_ended(item)
@@ -463,8 +464,10 @@ class TranslationManager:
                         sheet_name = missing_item['sheet_name']
                         translation = translation_item['translation']
                         issues = translation_item['issues']
-                        
+                        override = translation_item.get("override", '')
+
                         missing_item['translation'] = translation
+                        missing_item['override'] = override
 
                         if issues and len(issues) > 0:
                             # Store current attempt before updating issues
@@ -665,8 +668,6 @@ class TranslationManager:
         for i, source_text in enumerate(source_texts):
             translated_text = translations[i]["translation"]
             override = translations[i].get("override", '')
-            if override == '':
-                translations[i].pop("override", None)
 
             context = contexts[i]
             task = self.qa_handler.validate_translation_syntax(
@@ -690,7 +691,8 @@ class TranslationManager:
             translated_text = translation_dict["translation"]
             
             # If there are no syntax issues, add to LLM validation batch
-            if len(syntax_issues) == 0 and not translation_dict.get("override"):
+            override = translation_dict.get("override", '')
+            if len(syntax_issues) == 0 and (override == None or override == ''):
                 validation_item = {
                     'source_text': source_texts[i],
                     'translated_text': translated_text,
@@ -701,7 +703,7 @@ class TranslationManager:
                 llm_validation_indexes.append(i)
             
             # Store initial results with syntax issues
-            results.append({"translation": translated_text, "issues": syntax_issues})
+            results.append({"translation": translated_text, "issues": syntax_issues, "override": override})
         
         # Perform batch LLM validation if needed
         if llm_validation_items:

@@ -88,13 +88,12 @@ specialized for casual mobile games. Your task is to provide accurate and cultur
 
         override_instructions = ''
         if USE_OVERRIDE:
-            override_instructions = """5. Override validation issues - IMPORTANT:
+            override_instructions = f"""5. Override validation issues - IMPORTANT:
    - By default, the 'override' field should be empty
-   - For each text that has FAILED_TRANSLATION in its context
-   - If you believe the previous translation was actually correct despite validation issues:
+   - For each text that has FAILED_TRANSLATION in its context, if you believe the previous translation was actually correct despite validation issues:
      * Provide that previously failed but now corrected translation again
-     * In the 'override' field, explain in detail why the validation issues were false positives. This will tell the app to use this translation despite previous issues.
-   - Only fill in override when you are 100% certain the previous translation was completely correct
+     * In the 'override' field, explain in detail why the validation issues were false positives, in source language ({source_lang}). This will tell the app to use this translation despite previous issues.
+   - Only fill in override when you are 100% certain the previous translation was completely correct and was rejected due to issues that can be safely ignored.
 """
 
         prompt += f"""

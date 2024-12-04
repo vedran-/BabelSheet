@@ -278,8 +278,8 @@ class GraphicalUIManager:
         
         translation = f"{entry.get('translation', '')}"
 
-        override = entry.get("override")
-        if override:
+        override = entry.get("override", '')
+        if override and override != '':
             translation += f"\n ●●● OVERRIDE validation, because: {override}"
 
         last_issues = entry.get("last_issues")
