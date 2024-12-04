@@ -280,8 +280,7 @@ class GraphicalUIManager:
 
         last_issues = entry.get("last_issues")
         if last_issues and len(last_issues) > 0:
-            translation += "\n" + "-" * 40
-            translation += f"\nPrevious {len(last_issues)} failed attempts:"
+            translation += f"\n ----- Previous {len(last_issues)} failed attempts -----"
             for attempt in entry["last_issues"]:
                 translation += f"\n● >>> {attempt['translation']} <<<"
                 if attempt['issues']:
@@ -302,6 +301,7 @@ class GraphicalUIManager:
         
         # Adjust row height if needed
         self.table.resizeRowToContents(row_idx)
+        self.table.setRowHeight(row_idx, self.table.rowHeight(row_idx) + 4)
 
     def _ui_repaint_all(self):
         """Update the display with current data."""

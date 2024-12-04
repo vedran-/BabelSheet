@@ -9,8 +9,10 @@ import traceback
 from typing import Dict, Any, List
 from ..utils.auth import get_credentials
 from ..utils.llm_handler import LLMHandler
+from ..utils.qa_handler import QAHandler
 from ..sheets.sheets_handler import SheetsHandler
 from ..translation.translation_manager import TranslationManager
+from ..translation.translation_dictionary import TranslationDictionary
 from ..term_base.term_base_handler import TermBaseHandler
 import logging
 import pandas as pd
@@ -227,6 +229,16 @@ async def translate(ctx, target_langs, verbose):
         ctx.sheets_handler = SheetsHandler(ctx, creds)
         ctx.sheets_handler.initialize()
 
+        # Initialize QA Handler
+        ctx.qa_handler = QAHandler(
+            max_length=ctx.config.get('qa', {}).get('max_length', 1000),
+            llm_handler=ctx.llm_handler, ui=ctx.ui,
+            non_translatable_patterns=ctx.config.get('qa', {}).get('non_translatable_patterns', [])
+        )
+
+        ctx.translation_dictionary = TranslationDictionary(ctx)
+        ctx.translation_dictionary.initialize_from_sheets()
+
         # Initialize TermBaseHandler
         ctx.term_base_handler = TermBaseHandler(ctx)
         logger.debug(f"Successfully initialized Term Base handler with sheet: {ctx.term_base_handler.sheet_name}")
@@ -235,9 +247,11 @@ async def translate(ctx, target_langs, verbose):
         translation_manager = TranslationManager(
             config=ctx.config,
             sheets_handler=ctx.sheets_handler,
+            qa_handler=ctx.qa_handler,
             term_base_handler=ctx.term_base_handler,
             llm_handler=ctx.llm_handler,
-            ui=ctx.ui
+            ui=ctx.ui,
+            translation_dictionary=ctx.translation_dictionary
         )
 
         # Translate all sheets

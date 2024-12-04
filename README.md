@@ -14,13 +14,18 @@ BabelSheet is an automated translation tool for Google Sheets that uses AI to pr
   - Optional local LLM support
 - Quality Control
   - Automated term base management
-  - Quality assurance checks
+  - Quality assurance checks (e.g. formatting, capitalization, etc.)
   - Parallel validation processing
-  - Strict non-translatable terms validation
+  - Strict non-translatable terms validation (e.g. variables in the text)
 - Efficient Processing
   - Batch processing with configurable size
   - Immediate batch updates
   - Error resilience
+- Automatic Dictionary Creation
+  - Automatically create a dictionary of translations
+  - Automatically handle duplicates - don't translate the same text twice
+  - Dictionary is also used as a term base for further translations
+
 
 ## Installation
 

@@ -62,7 +62,7 @@ class QAHandler:
             
             # Check for non-translatable terms only if patterns are configured
             if self.patterns:
-                source_terms = self._extract_non_translatable_terms(source_text)
+                source_terms = self.extract_non_translatable_terms(source_text)
                 for term in source_terms:
                     if term not in translated_text:
                         issues.append(f"Non-translatable term '{term}' is missing in translation")
@@ -181,7 +181,7 @@ class QAHandler:
         
         # First check non-translatable terms if patterns exist
         if self.patterns:
-            source_terms = self._extract_non_translatable_terms(source)
+            source_terms = self.extract_non_translatable_terms(source)
             for term in source_terms:
                 if term not in translation:
                     issues.append(f"Non-translatable term '{term}' must appear exactly as in source ({source})")
@@ -465,7 +465,7 @@ class QAHandler:
                 
         return compiled_patterns
     
-    def _extract_non_translatable_terms(self, text: str) -> List[str]:
+    def extract_non_translatable_terms(self, text: str) -> List[str]:
         """Extract all non-translatable terms from text using configured patterns.
         
         Returns exact matches including the pattern characters. For example, if the pattern

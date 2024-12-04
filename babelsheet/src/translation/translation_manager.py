@@ -13,26 +13,22 @@ from ..utils.qa_handler import QAHandler
 from ..term_base.term_base_handler import TermBaseHandler
 from ..sheets.sheets_handler import SheetsHandler, CellData
 from .translation_prompts import TranslationPrompts
-
+from .translation_dictionary import TranslationDictionary
 logger = logging.getLogger(__name__)
 
 class TranslationManager:
-    def __init__(self, config: Dict, sheets_handler: SheetsHandler, term_base_handler: TermBaseHandler,
-                 llm_handler: LLMHandler, ui: UIManager):
+    def __init__(self, config: Dict, sheets_handler: SheetsHandler, qa_handler: QAHandler,
+                 term_base_handler: TermBaseHandler, llm_handler: LLMHandler, 
+                 ui: UIManager, translation_dictionary: TranslationDictionary):
         """Initialize Translation Manager."""
         self.config = config
         self.llm_handler = llm_handler
         self.logger = logging.getLogger(__name__)
+        self.qa_handler = qa_handler
         
         self.sheets_handler = sheets_handler
         self.term_base_handler = term_base_handler
-        
-        # Initialize QA Handler
-        self.qa_handler = QAHandler(
-            max_length=config.get('max_length', 1000),
-            llm_handler=llm_handler, ui=ui,
-            non_translatable_patterns=config.get('qa', {}).get('non_translatable_patterns', [])
-        )
+        self.translation_dictionary = translation_dictionary
         
         # Initialize Translation Prompts
         self.translation_prompts = TranslationPrompts(config)
@@ -337,6 +333,42 @@ class TranslationManager:
         # Save all changes
         self.sheets_handler.save_changes()
 
+    def get_next_batch(self, missing_translations: Dict[str, List[Dict[str, Any]]]) \
+            -> Tuple[str, List[Dict[str, Any]]]:
+        """Get the next batch of missing translations."""
+        while len(missing_translations) > 0:
+            lang, items = next(iter(missing_translations.items()))
+            if len(items) == 0:
+                missing_translations.pop(lang)
+                continue
+
+            batch = []
+            item_idx = 0
+            while len(batch) < self.batch_size and item_idx < len(items):
+                item = items[item_idx]
+                existing_translation = self.translation_dictionary.get_translation(item['source_text'], lang)
+                if existing_translation is not None:
+                    # Already translated!
+                    self.sheets_handler.modify_cell_data(
+                        sheet_name=item['sheet_name'],
+                        row=item['row_idx'],
+                        col=item['col_idx'],
+                        value=existing_translation
+                    )
+                    item['status'] = StatusIcons.SUCCESS + " (from dictionary)"
+                    items.pop(item_idx)
+                    self.ui.on_translation_ended(item)
+
+                else:
+                    batch.append(item)
+                    item_idx += 1
+
+            if len(batch) == 0:
+                continue
+
+            return lang, items, batch
+
+        return None, [], []
 
     async def _process_missing_translations(self, df: Optional[pd.DataFrame], missing_translations: Dict[str, List[Dict[str, Any]]], use_term_base: bool) -> None:
         """Process missing translations, either for a single sheet or across all sheets."""
@@ -347,7 +379,6 @@ class TranslationManager:
         source_lang = self.config['languages']['source']
         
         self.ui.debug(f"Starting batch translation for {len(missing_translations)} languages ({total_items} items total)")
-
         self.ui.set_translation_list(missing_translations)
 
         last_lang = None
@@ -373,10 +404,11 @@ class TranslationManager:
 
         try:
             while len(missing_translations) > 0:
-                lang, missing_items = next(iter(missing_translations.items()))
+                lang, missing_items, batch = self.get_next_batch(missing_translations)
+                if len(batch) == 0 or lang is None:
+                    break
+
                 await check_language_change(lang)
-                
-                batch = missing_items[:self.batch_size]
                 
                 # Add pending translations to UI with progress indicator
                 for item in batch:
