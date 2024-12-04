@@ -184,7 +184,7 @@ def translate_command(ctx, target_langs, sheet_id, verbose, simple_output):
         ctx.config['ui'] = {}
     ctx.config['ui']['type'] = 'graphical'
 
-    ctx.ui = create_ui_manager(ctx.config, ctx.llm_handler)
+    ctx.ui = create_ui_manager(ctx, ctx.llm_handler)
 
     # Create a queue for thread communication
     error_queue = queue.Queue()

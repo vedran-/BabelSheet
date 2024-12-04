@@ -20,6 +20,23 @@
             ]
         },
         {
+            "name": "Python: BabelSheet Module (SA2)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "babelsheet",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "LOG_LEVEL": "INFO"
+            },
+            "args": [
+                "translate",
+                "--target-langs",
+                "es,fr,de,pt,ru,zh,ja,ko,id,sl,hr"
+            ]
+        },
+        {
             "name": "Python: BabelSheet Tests",
             "type": "debugpy",
             "request": "launch",

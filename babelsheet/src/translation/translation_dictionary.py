@@ -19,18 +19,27 @@ class TranslationDictionary:
         self.ui.info("Initializing Translation Dictionary...")
         for sheet_name in self.sheets_handler.get_sheet_names():
             df = self.sheets_handler.get_sheet_data(sheet_name)
-            source_idx = self.sheets_handler.get_column_indexes(df, [self.ctx.source_lang])[0]
-            target_idxs = self.sheets_handler.get_column_indexes(df, self.ctx.target_langs)
-            if source_idx is None or len(target_idxs) == 0:
-                self.ui.debug(f"No source or target columns found in sheet '{sheet_name}'")
+            
+            source_lang_idxs = self.sheets_handler.get_column_indexes(df, [self.ctx.source_lang])   
+            if len(source_lang_idxs) == 0:
+                self.ui.warning(f"No source language column found in sheet '{sheet_name}'")
                 continue
+            source_idx = source_lang_idxs[0]
+
+            target_idxs = self.sheets_handler.get_column_indexes(df, self.ctx.target_langs)
+            if len(target_idxs) == 0:
+                self.ui.warning(f"No target columns found in sheet '{sheet_name}'")
+                continue
+
+            # Get target languages which exist in this sheet from the first row
+            target_langs = [self.sheets_handler.get_cell_value(df, 0, target_idx) for target_idx in target_idxs]
 
             for index in range(1, len(df)):
                 source_text = self.sheets_handler.get_cell_value(df, index, source_idx)
                 if source_text is None:
                     continue
 
-                for target_idx, target_lang in zip(target_idxs, self.ctx.target_langs):
+                for target_idx, target_lang in zip(target_idxs, target_langs):
                     target_text = self.sheets_handler.get_cell_value(df, index, target_idx)
                     if target_text is None:
                         continue
@@ -44,6 +53,13 @@ class TranslationDictionary:
         source_text = str(source_text).strip()
         translation = str(translation).strip()
         if source_text == "" or translation == "":
+            return
+        
+        if len(source_text) > 1000:
+            self.ui.warning(f"Source text too long: '{source_text}'")
+            return
+        
+        if len(source_text) < 3: # Ignore too short texts
             return
 
         if target_lang not in self.dictionary:
@@ -67,9 +83,14 @@ class TranslationDictionary:
         """Get translation for a specific text in target language."""
         if target_lang not in self.dictionary:
             return None
+        
+        source_text = source_text.strip()
+        if source_text == "":
+            return None
+        
         if source_text not in self.dictionary[target_lang]:
             return None
-        return self.dictionary[target_lang][source_text.strip()]
+        return self.dictionary[target_lang][source_text]
 
     def get_relevant_translations(self, source_text: str, target_lang: str) -> List[str]:
         """Get all relevant translations for a specific text in target language."""

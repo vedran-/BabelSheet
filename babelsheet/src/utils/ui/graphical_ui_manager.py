@@ -44,9 +44,11 @@ class UISignals(QObject):
     check_thread_signal = pyqtSignal()  # New signal for checking thread status
 
 class GraphicalUIManager:
-    def __init__(self, max_history: int = 100, status_lines: int = 10, llm_handler: LLMHandler = None):
+    def __init__(self, ctx, max_history: int = 100, status_lines: int = 10):
         """Initialize Graphical UI Manager."""
-        self.llm_handler = llm_handler
+        self.ctx = ctx
+        self.config = ctx.config
+        self.llm_handler = ctx.llm_handler
         self.app = QApplication([])
         self.window = QMainWindow()
         self.window.setWindowTitle("BabelSheet Translator")
@@ -154,9 +156,11 @@ class GraphicalUIManager:
         
         self.total_label = QLabel("Total Attempts: 0")
         self.llm_stats_label = QLabel("LLM Stats: 0 tokens, $0.00")
+        self.languages_label = QLabel("Languages: 'en' (source), 'es' (target)")
         self.stats_layout.addWidget(QLabel("📊 Statistics"), 0, 0, 1, 1)
-        self.stats_layout.addWidget(self.total_label, 0, 1)
-        self.stats_layout.addWidget(self.llm_stats_label, 0, 2)
+        self.stats_layout.addWidget(self.languages_label, 0, 1)
+        self.stats_layout.addWidget(self.total_label, 0, 2)
+        self.stats_layout.addWidget(self.llm_stats_label, 0, 3)
         
         self.layout.addWidget(self.stats_widget)
 
@@ -241,12 +245,17 @@ class GraphicalUIManager:
             total_tokens = llm_stats.get("total_tokens", 0)
             total_cost = llm_stats.get("total_cost", 0)
             self.llm_stats_label.setText(f"LLM tokens: {total_tokens} ({prompt_tokens} prompt, {completion_tokens} completion), cost: ${total_cost:.6f}")
+        else:
+            self.llm_stats_label.setText("LLM: N/A")
+
+        self.languages_label.setText(f"Languages: {self.ctx.source_lang} (source), {', '.join(self.ctx.target_langs)} (target)")
+
 
     def _ui_update_console(self):
         """Update the status messages display."""
         # Update status panel
         status_text = ""
-        for msg in self.status_messages:
+        for msg in reversed(self.status_messages):
             status_text += f"{msg}\n"
         self.status_text.setText(status_text)
 
