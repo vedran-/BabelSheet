@@ -4,14 +4,14 @@ from collections import deque
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                           QTableWidget, QTableWidgetItem, QTextEdit, QLabel,
                           QGridLayout, QHeaderView)
-from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal
-from PyQt6.QtGui import QColor, QPalette
-from rich.text import Text
+from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal, QSize
+from PyQt6.QtGui import QColor, QPalette, QIcon
 from ..llm_handler import LLMHandler
-import threading
 import logging
 import traceback
 import queue
+import os
+import platform
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,7 @@ class GraphicalUIManager:
         self.window = QMainWindow()
         self.window.setWindowTitle("BabelSheet Translator")
         self.window.resize(1200, 800)
+        self._set_window_icon()
         
         # Create signals object
         self.signals = UISignals()
@@ -115,6 +116,36 @@ class GraphicalUIManager:
         self.should_stop = False
         self.error_queue = None
         self.translation_thread = None
+
+    def _set_window_icon(self):
+        """Set the application window icon with proper sizing for different platforms."""
+        try:
+            # Get the absolute path to the icon file
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            icon_path = os.path.join(current_dir, '..', '..', '..', 'assets', 'icon.png')
+            
+            if os.path.exists(icon_path):
+                app_icon = QIcon(icon_path)
+                
+                # Set multiple sizes for better scaling
+                for size in [16, 24, 32, 48, 64, 128, 256]:
+                    app_icon.addFile(icon_path, QSize(size, size))
+                
+                self.window.setWindowIcon(app_icon)
+                self.app.setWindowIcon(app_icon)
+                
+                # Special handling for Windows taskbar icon
+                if platform.system() == 'Windows':
+                    try:
+                        from ctypes import windll
+                        windll.shell32.SetCurrentProcessExplicitAppUserModelID('BabelSheet.Translator')
+                    except Exception as e:
+                        self.logger.debug(f"Windows-specific icon setting failed: {e}")
+                
+            else:
+                self.logger.warning(f"Icon file not found at {icon_path}")
+        except Exception as e:
+            self.logger.error(f"Failed to set window icon: {e}")
 
     def _setup_stats_panel(self):
         """Setup the statistics panel."""
@@ -245,14 +276,14 @@ class GraphicalUIManager:
         lang_item = self._create_table_item(entry["lang"])
         status_item = self._create_table_item(entry["status"])
         
-        translation = entry.get("translation", "")
+        translation = f"{entry.get('translation', '')}"
 
         last_issues = entry.get("last_issues")
         if last_issues and len(last_issues) > 0:
             translation += "\n" + "-" * 40
             translation += f"\nPrevious {len(last_issues)} failed attempts:"
             for attempt in entry["last_issues"]:
-                translation += f"\n● `{attempt['translation']}`"
+                translation += f"\n● >>> {attempt['translation']} <<<"
                 if attempt['issues']:
                     translation += "\n    - " + "\n    -".join(attempt['issues'])
 

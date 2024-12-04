@@ -102,7 +102,11 @@ When you see FAILED_TRANSLATION tags in the context:
    - Maintains the original meaning
    - Avoids similar mistakes
    - Improves upon the previous attempts
-5. Double-check your translation against all identified issues before submitting
+5. If you are 100% certain that a previous translation was actually correct despite validation issues:
+   - Provide the same translation again
+   - Include an "override" field in your response
+   - In the override, explain in detail why the validation issues are false positives
+   - Only do this in extreme cases where you are absolutely certain
 
 Term Base Management:
 Identify any important unique terms in the source text that should be added to the term base:
@@ -139,6 +143,10 @@ Return translations and term suggestions in a structured JSON format."""
                             "translation": {
                                 "type": "string",
                                 "description": "The translated text"
+                            },
+                            "override": {
+                                "type": "string",
+                                "description": "Optional reason for overriding validation issues. Only provide this when 100% certain that the translation is correct despite validation issues."
                             }
                         },
                         "required": ["text_id", "translation"]

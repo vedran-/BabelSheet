@@ -1,11 +1,15 @@
 import re
 from typing import Dict, List, Tuple, Optional, Pattern, Any
 from .llm_handler import LLMHandler
+from .ui_manager import UIManager
 import logging
 import json
 
 class QAHandler:
-    def __init__(self, max_length: Optional[int] = None, llm_handler: Optional[LLMHandler] = None, 
+    def __init__(self, 
+                 max_length: Optional[int] = None, 
+                 llm_handler: Optional[LLMHandler] = None, 
+                 ui: Optional[UIManager] = None,
                  non_translatable_patterns: Optional[List[Dict[str, str]]] = None):
         """Initialize QA Handler.
         
@@ -17,23 +21,25 @@ class QAHandler:
         self.max_length = max_length
         self.llm_handler = llm_handler
         self.logger = logging.getLogger(__name__)
+        self.ui = ui
         
         # Validate and compile patterns if provided
         self.non_translatable_patterns = non_translatable_patterns
         if non_translatable_patterns:
             try:
                 self.patterns = self._compile_patterns(non_translatable_patterns)
-                self.logger.debug(f"Compiled {len(self.patterns)} non-translatable patterns")
+                self.ui.info(f"Compiled {len(self.patterns)} non-translatable patterns")
             except Exception as e:
-                self.logger.warning(f"Failed to compile patterns: {e}")
+                self.ui.critical(f"Failed to compile patterns: {e}")
                 self.patterns = None
+                raise Exception(f"Failed to compile patterns: {e}")
         else:
             self.patterns = None
-            self.logger.debug("No non-translatable patterns configured")
+            self.ui.info("No non-translatable patterns configured")
         
     async def validate_translation_syntax(self, source_text: str, translated_text: str,
                                  context: str, term_base: Optional[Dict[str, Dict[str, Any]]] = None,
-                                 target_lang: str = None) -> List[str]:
+                                 target_lang: str = None, override: Optional[str] = None) -> List[str]:
         """Validate translation quality.
         
         Args:
@@ -42,7 +48,13 @@ class QAHandler:
             context: Context of the translation
             term_base: Optional term base dictionary
             target_lang: Target language code for term base validation
+            override: Optional override reason
         """
+
+        if override:
+            self.ui.info(f"Validation override used for text '{source_text}'. Reason: {override}")
+            return []
+
         issues = []
         
         try:

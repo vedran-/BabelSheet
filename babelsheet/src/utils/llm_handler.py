@@ -17,6 +17,7 @@ from litellm import acompletion, completion_cost
 
 # Additional verbosity controls
 #litellm.verbose = False
+litellm.verbose=False
 litellm.set_verbose=False
 litellm.log_raw_request_response=False
 litellm.success_callback = [] 
@@ -98,37 +99,47 @@ class LLMHandler:
                                 messages: list[Dict[str, str]], 
                                 json_schema: Optional[Dict] = None,
                                 **kwargs) -> Dict[str, Any]:
-        """Generate completion using the configured LLM service.
-        
-        Args:
-            messages: List of message dictionaries with 'role' and 'content'
-            json_schema: Optional JSON schema for structured output
-            **kwargs: Additional parameters to pass to the API
-        
-        Returns:
-            Dict containing the API response
-        """
+        """Generate completion using the configured LLM service."""
         data = {
-            "model": self.model,
+            "model": self.model,  # Use clean model name without provider prefix
             "messages": messages,
             "temperature": self.temperature,
             **kwargs
         }
 
         if json_schema:
-            # Add JSON schema requirement to system message or create new one
             json_requirement = f"You must respond ONLY with a valid JSON matching this schema: {json.dumps(json_schema)}." \
-                                "Make sure to escape all quotes, newlines, and other special characters, so you don't break JSON."
-            if messages and messages[0]["role"] == "system":
-                messages[0]["content"] = messages[0]["content"] + "\n\n" + json_requirement
-            else:
-                messages.insert(0, {
-                    "role": "system", 
-                    "content": json_requirement
-                })
+                              "Make sure to escape all quotes, newlines, and other special characters."
             
-            # Only add response_format and functions for supported models
-            if "openai" in self.model.lower():
+            # For Anthropic, we need to format the system message differently
+            if "anthropic" in self.model.lower():
+                if messages and messages[0]["role"] == "system":
+                    messages[0]["content"] = messages[0]["content"] + "\n\n" + json_requirement
+                else:
+                    messages.insert(0, {
+                        "role": "system", 
+                        "content": json_requirement
+                    })
+                
+                # Convert messages to Anthropic's format
+                formatted_messages = []
+                for msg in messages:
+                    formatted_messages.append({
+                        "role": msg["role"],
+                        "content": [{"type": "text", "text": msg["content"]}]
+                    })
+                data["messages"] = formatted_messages
+                
+            # For OpenAI models
+            elif "openai" in self.model.lower():
+                if messages[0]["role"] == "system":
+                    messages[0]["content"] = messages[0]["content"] + "\n\n" + json_requirement
+                else:
+                    messages.insert(0, {
+                        "role": "system", 
+                        "content": json_requirement
+                    })
+                
                 if self.model.startswith(("gpt-4-1106", "gpt-3.5-turbo-1106", "gpt-4o", "o1")):
                     data["response_format"] = {"type": "json_object"}
                 else:
@@ -148,7 +159,7 @@ class LLMHandler:
 
         try:
             # Use LiteLLM's async completion function
-            response = await acompletion(**data, logger_fn=my_custom_logging_fn, log_raw_request_response=False, success_callback=[])
+            response = await acompletion(**data, logger_fn=my_custom_logging_fn)
             
             # Calculate cost
             try:
@@ -159,7 +170,7 @@ class LLMHandler:
                 )
             except Exception as e:
                 # If cost calculation fails (e.g., for local models), default to 0
-                print(f"Cost calculation failed for model {self.model}, will use price of 0.0")
+                #print(f"Cost calculation failed for model {self.model}, will use price of 0.0")
                 cost = 0.0
                 
             LLMHandler.total_cost += cost

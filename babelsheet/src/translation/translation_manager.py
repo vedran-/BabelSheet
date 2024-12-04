@@ -29,8 +29,8 @@ class TranslationManager:
         
         # Initialize QA Handler
         self.qa_handler = QAHandler(
-            max_length=config.get('max_length'),
-            llm_handler=llm_handler,
+            max_length=config.get('max_length', 1000),
+            llm_handler=llm_handler, ui=ui,
             non_translatable_patterns=config.get('qa', {}).get('non_translatable_patterns', [])
         )
         
@@ -595,13 +595,15 @@ class TranslationManager:
         # First validate syntax for all translations
         for i, source_text in enumerate(source_texts):
             translated_text = translations[i]["translation"]
+            override = translations[i].get("override")
             context = contexts[i]
             task = self.qa_handler.validate_translation_syntax(
                 source_text=source_text,
                 translated_text=translated_text,
                 context=context,
                 term_base=term_base,
-                target_lang=target_lang
+                target_lang=target_lang,
+                override=override
             )
             syntax_validation_tasks.append(task)
             
@@ -616,7 +618,7 @@ class TranslationManager:
             translated_text = translation_dict["translation"]
             
             # If there are no syntax issues, add to LLM validation batch
-            if len(syntax_issues) == 0:
+            if len(syntax_issues) == 0 and not translation_dict.get("override"):
                 validation_item = {
                     'source_text': source_texts[i],
                     'translated_text': translated_text,
