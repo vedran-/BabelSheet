@@ -1,6 +1,7 @@
 from typing import Dict, Any, Optional
 import json
 import os
+import asyncio
 
 import litellm
 os.environ["LITELLM_LOG"] = "ERROR"
@@ -15,6 +16,9 @@ os.environ["LITELLM_LOG"] = "ERROR"
 # Now import litellm
 from litellm import acompletion, completion_cost
 
+def my_custom_logging_fn(model_call_dict):
+    pass
+
 # Additional verbosity controls
 #litellm.verbose = False
 litellm.verbose=False
@@ -26,6 +30,7 @@ def my_custom_logging_fn(model_call_dict):
     #print(f"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXX XXXXXXXXXXX\nXXXXXXXXXXX XXXXXXXXXX XXXXXXXX\nXXXXXXXXXX\nXXXXXXXXXX\nmodel call details: {model_call_dict}")
     pass
 
+litellm.callbacks = []
 
 class LLMHandler:
     # Class-level variables to track tokens and costs across all instances
@@ -33,8 +38,8 @@ class LLMHandler:
     total_completion_tokens = 0
     total_cost = 0.0
     
-    def __init__(self, api_key: str, model: str = "anthropic/claude-3-5-sonnet", 
-                 temperature: float = 0.3, config: Optional[Dict[str, bool]] = None):
+    def __init__(self, ctx, api_key: str, model: str = "anthropic/claude-3-5-sonnet", 
+                 temperature: float = 0.3):
         """Initialize the LLM Handler.
         
         Args:
@@ -45,9 +50,10 @@ class LLMHandler:
                 - save_requests: Whether to save API requests to files
                 - save_responses: Whether to save API responses to files
         """
+        self.ctx = ctx
         self.model = model
         self.temperature = temperature
-        self.config = config or {
+        self.config = ctx.config.get('llm', {}) or {
             "save_requests": False,
             "save_responses": False
         }
@@ -155,55 +161,62 @@ class LLMHandler:
         if self.config["save_requests"]:
             from datetime import datetime
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"llm_{timestamp}_request.json"
+            filename = f"{self.config.get('output', {}).get('dir', 'translation_logs')}/llm_{timestamp}_request.json"
             self.dump_json_to_file(data, filename)
 
-        try:
-            # Use LiteLLM's async completion function
-            response = await acompletion(**data, logger_fn=my_custom_logging_fn)
-            
-            # Calculate cost
+        while True:
             try:
-                cost = completion_cost(
-                    model=self.model,
-                    messages=messages,
-                    completion=response.choices[0].message.content
-                )
-            except Exception as e:
-                # If cost calculation fails (e.g., for local models), default to 0
-                #print(f"Cost calculation failed for model {self.model}, will use price of 0.0")
-                cost = 0.0
+                # Use LiteLLM's async completion function
+                response = await acompletion(**data, logger_fn=my_custom_logging_fn)
                 
-            LLMHandler.total_cost += cost
+                # Calculate cost
+                try:
+                    cost = completion_cost(
+                        model=self.model,
+                        messages=messages,
+                        completion=response.choices[0].message.content
+                    )
+                except Exception as e:
+                    # If cost calculation fails (e.g., for local models), default to 0
+                    #print(f"Cost calculation failed for model {self.model}, will use price of 0.0")
+                    cost = 0.0
+                    
+                LLMHandler.total_cost += cost
+                
+                # Update token counters
+                if response.usage:
+                    LLMHandler.total_prompt_tokens += response.usage.prompt_tokens
+                    LLMHandler.total_completion_tokens += response.usage.completion_tokens
+
+                if self.config["save_responses"]:
+                    # Convert to serializable format only for saving
+                    ret = {
+                        "choices": [{
+                            "message": {
+                                "role": "assistant",
+                                "content": response.choices[0].message.content
+                            }
+                        }],
+                        "usage": {
+                            "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                            "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                            "total_tokens": (response.usage.prompt_tokens + response.usage.completion_tokens) if response.usage else 0
+                        },
+                        "cost": round(cost, 4)
+                    }
+                    filename = f"{self.config.get('output', {}).get('dir', 'translation_logs')}/llm_{timestamp}_response.json"
+                    self.dump_json_to_file(ret, filename)
+
+                return response
+
+            except litellm.InternalServerError as e:
+                # Add a 5 second delay before retrying
+                self.ctx.ui.warning(f"LLM InternalServerError: {str(e)}, retrying in 5 seconds...")
+                await asyncio.sleep(5)
+                continue
             
-            # Update token counters
-            if response.usage:
-                LLMHandler.total_prompt_tokens += response.usage.prompt_tokens
-                LLMHandler.total_completion_tokens += response.usage.completion_tokens
-
-            if self.config["save_responses"]:
-                # Convert to serializable format only for saving
-                ret = {
-                    "choices": [{
-                        "message": {
-                            "role": "assistant",
-                            "content": response.choices[0].message.content
-                        }
-                    }],
-                    "usage": {
-                        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-                        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-                        "total_tokens": (response.usage.prompt_tokens + response.usage.completion_tokens) if response.usage else 0
-                    },
-                    "cost": round(cost, 4)
-                }
-                filename = f"llm_{timestamp}_response.json"
-                self.dump_json_to_file(ret, filename)
-
-            return response
-
-        except Exception as e:
-            raise Exception(f"LLM API call failed: {str(e)}")
+            except Exception as e:
+                raise Exception(f"LLM API call failed: {str(e)}")
 
     def extract_structured_response(self, response: Dict[str, Any]) -> Any:
         """Extract and parse JSON response from the API response."""

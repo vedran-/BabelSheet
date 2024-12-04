@@ -173,10 +173,10 @@ def translate_command(ctx, target_langs, sheet_id, verbose, simple_output):
     # Initialize LLM Handler
     llm_config = ctx.config.get('llm', {})
     ctx.llm_handler = LLMHandler(
+        ctx=ctx,
         api_key=llm_config.get('api_key'),
         model=llm_config.get('model', 'anthropic/claude-3-5-sonnet'),
         temperature=llm_config.get('temperature', 0.3),
-        config=llm_config
     )
 
     # Set UI type to graphical
