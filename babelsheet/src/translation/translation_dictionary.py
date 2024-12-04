@@ -73,6 +73,12 @@ class TranslationDictionary:
 
     def get_relevant_translations(self, source_text: str, target_lang: str) -> List[str]:
         """Get all relevant translations for a specific text in target language."""
+
+        # First, remove variables from the source text
+        variables = self.ctx.qa_handler.extract_non_translatable_terms(source_text)
+        if len(variables) > 0:
+            source_text = self._remove_substrings(source_text, variables).strip()
+
         haystack = source_text.strip().lower()
         dict = self.dictionary.get(target_lang, {})
         if len(dict) == 0:

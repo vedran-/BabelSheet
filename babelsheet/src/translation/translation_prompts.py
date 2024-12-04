@@ -25,7 +25,6 @@ class TranslationPrompts:
             source_texts: List of texts to translate
             contexts: List of context dictionaries for each text
             issues: List of issues for each text
-            qa_handler: QA Handler instance for extracting non-translatable terms
             term_base: Optional term base dictionary
             
         Returns:
@@ -57,9 +56,9 @@ class TranslationPrompts:
                 exc.append(f"  FAILED_TRANSLATION: `{self.escape(issue['translation'])}` failed because: {self.escape(issue['issues'])}")
             
             expanded_context = "\n".join(exc)
-            texts_with_contexts.append(f"<text id='{i+1}'>{text}</text>\n<context id='{i+1}'>\n{expanded_context}</context>")
+            texts_with_contexts.append(f"<text id='{i+1}'>{text}</text>\n<context id='{i+1}'>\n{expanded_context}\n</context>")
         
-        return "\n\n".join(texts_with_contexts)
+        return f"# Texts to Translate ({len(source_texts)} texts)\n\n" + "\n\n".join(texts_with_contexts)
 
 
     def create_translation_prompt(self, combined_texts: str, target_lang: str, source_lang: str, 
@@ -134,8 +133,6 @@ For each suggested term, provide:
   * A brief comment explaining its usage/context in the source language ({source_lang})
 
   
-# Texts to Translate
-
 {combined_texts}
   
 
@@ -167,7 +164,7 @@ Return translations and term suggestions in a structured JSON format."""
                             **({} if not USE_OVERRIDE else {
                                 "override": {
                                     "type": "string", 
-                                    "description": "Optional reason for overriding validation issues. Only provide this when 100% certain that the translation is correct despite validation issues."
+                                    "description": "Optional reason for overriding validation issues, or empty string. Only provide this when 100% certain that the translation is correct despite validation issues."
                                 }
                             })
                         },

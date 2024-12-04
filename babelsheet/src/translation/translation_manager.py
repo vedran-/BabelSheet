@@ -302,6 +302,12 @@ class TranslationManager:
             total_missing = sum(len(items) for items in all_missing_translations.values())
             self.ui.debug("\nCollection complete. Summary of all missing translations:")
             for lang, items in all_missing_translations.items():
+                # Order items by source_text length, from shortest to longest
+                # That will basically use whole document as a term base, as shorter texts are translated first.
+                # E.g. if we first translate 'Slow Joe' and then 'Slow Joe is a good friend',
+                # it will translate 'Slow Joe' in a consistent way.
+                items.sort(key=lambda x: len(x['source_text']))
+
                 self.ui.debug(f"  - {lang}: {len(items)} items")
             self.ui.debug(f"Total missing translations: {total_missing}")
         else:
@@ -434,6 +440,22 @@ class TranslationManager:
                         use_term_base=use_term_base,
                         items=batch
                     )
+
+                    if isinstance(batch_translations, str):
+                        # Handle error
+                        error_msg = batch_translations
+                        self.ui.error(error_msg)
+                        self.logger.error(error_msg)
+
+                        for item in batch:
+                            item['error'] = error_msg
+                            item['status'] = StatusIcons.FAILED + " Failed"
+                            all_issues = item.get('last_issues', [])
+                            all_issues.append({'translation': '', 'issues': [error_msg]})
+                            item['last_issues'] = all_issues
+                            self.ui.on_translation_ended(item)
+
+                        continue
                     
                     # Process results
                     for idx, (missing_item, translation_item) in enumerate(zip(batch, batch_translations)):
@@ -567,23 +589,37 @@ class TranslationManager:
             self.ui.info("Processing LLM response...")
             
             # Process response
-            result = self.llm_handler.extract_structured_response(response)
-            translations = result.get("translations", [])
-            if len(translations) == 0:  # Fallback for LLMs that don't return translations in the expected format
-                translations = result.get("properties", []).get("translations", [])
+            try:
+
+                result = self.llm_handler.extract_structured_response(response)
+                translations = result.get("translations", [])
+                if len(translations) == 0:  # Fallback for LLMs that don't return translations in the expected format
+                    translations = result.get("properties", []).get("translations", [])
+                
+                # Critical check: number of translations must match number of source texts
+                if len(translations) != len(source_texts):
+                    error_msg = f"Number of translations ({len(translations)}) does not match number of source texts ({len(source_texts)})"
+                    self.ui.error(error_msg)
+                    self.logger.critical(f"CRITICAL ERROR: {error_msg}")
+                    self.logger.critical("This indicates a fundamental problem with LLM response handling")
+                    self.logger.critical(f"Source texts: {source_texts}")
+                    self.logger.critical(f"Translations: {translations}")
+                    raise Exception(error_msg)
             
-            # Critical check: number of translations must match number of source texts
-            if len(translations) != len(source_texts):
-                error_msg = f"Number of translations ({len(translations)}) does not match number of source texts ({len(source_texts)})"
+                return result
+            
+            except json.JSONDecodeError as e:
+                error_msg = f"Error parsing JSON response from LLM: {str(e)}"
                 self.ui.error(error_msg)
-                self.logger.critical(f"CRITICAL ERROR: {error_msg}")
-                self.logger.critical("This indicates a fundamental problem with LLM response handling")
-                self.logger.critical(f"Source texts: {source_texts}")
-                self.logger.critical(f"Translations: {translations}")
-                raise Exception(error_msg)
+                self.logger.error(error_msg)
+                return error_msg
             
-            return result
-            
+            except Exception as e:
+                error_msg = f"Error with LLM response: {str(e)}"
+                self.ui.error(error_msg)
+                self.logger.error(error_msg)
+                return error_msg
+
         except Exception as e:
             error_msg = f"Error during LLM translation: {str(e)}"
             self.ui.error(error_msg)
@@ -708,6 +744,10 @@ class TranslationManager:
             issues=issues,
             term_base=term_base
         )
+
+        if isinstance(result, str): # Handle error
+            return result
+            
         
         translations = result["translations"]
         term_suggestions = result.get("term_suggestions", [])

@@ -276,7 +276,7 @@ class QAHandler:
         # Add term base at the beginning if available
         if True and term_base:
             combined_prompt += (
-                "Term Base Guidelines:\n"
+                "# Term Base Guidelines:\n"
                 "- Verify that all term base translations are used consistently\n"
                 "- Check that game-specific terms match their approved translations\n"
                 "- Ensure special terms are preserved exactly as specified\n"
@@ -296,7 +296,7 @@ class QAHandler:
                 combined_prompt += "\n"
 
         combined_prompt += (
-            f"For each translation, evaluate:\n"
+            f"\n# For each translation, evaluate:\n"
             f"1. Semantic accuracy (does it convey the same meaning?)\n"
             f"2. Regional and linguistic appropriateness (suitable for target language region, while maintaining the original tone even if provocative)\n"
             f"3. Natural flow and readability\n"
@@ -304,20 +304,22 @@ class QAHandler:
             f"5. Correct usage of term base translations. Note: Non-translatable terms must be preserved exactly as in source, so they ignore term base rules.\n"
             f"6. Preservation of special terms and markup\n"
             f"7. Resolution of previous issues (if any)\n\n"
-            f"Pay special attention to:\n"
+            f"# Pay special attention to:\n"
             f"- Consistent use of approved terminology\n"
             f"- Proper handling of game-specific terms\n"
             f"- Whether previous translation issues have been properly addressed\n"
             f"- Regional language conventions while preserving original intent and tone\n"
             f"- Cultural nuances specific to the target language region"
-            f"- Keeping with syntax of the source text (e.g. punctuation, capitalization)"
+            f"- Keeping with syntax of the source text (e.g. punctuation, capitalization)\n\n"
         )
+
+        combined_prompt += f"\n# Translations to Validate ({len(items)} texts):\n"
 
         for i, item in enumerate(items, 1):
             combined_prompt += (
                 f"\n## Translation #{i} ##\n"
                 f"Source text: {item['source_text']}\n"
-                f"Translated text: {item['translated_text']}\n"
+                f"Translated text to validate: {item['translated_text']}\n"
                 f"Context: {item['context']}\n"
             )
 
@@ -326,7 +328,7 @@ class QAHandler:
                 combined_prompt += f"RELEVANT_TERM_BASE:\n    - {'\n   - '.join(f'{rt['term']}: {rt['translation']}' for rt in relevant_translations)}\n"
 
             if item['previous_issues'] and len(item['previous_issues']) > 0:
-                combined_prompt += f"Previous issues: {item['previous_issues']}\n"
+                combined_prompt += f"Previous issues history:\n    - {'\n   - '.join(f'`{issue['translation']}` failed because: {issue['issues']}' for issue in item['previous_issues'])}\n"
 
             combined_prompt += "\n"
 
@@ -352,15 +354,13 @@ class QAHandler:
             "required": ["validations"]
         }
         
+        quotes_warning = "When providing feedback, never use double quotes - instead, use ` (backtick). For example, write `word` not ''word'' or ""word"". This ensures the JSON response remains valid."
         response = await self.llm_handler.generate_completion(
             messages=[
                 {"role": "system", "content": (
-                    f"You are a professional translation validator for {target_lang} language. "
-                    "When providing feedback, use simple single quotes without escaping them. "
-                    "For example, write 'word' not \\'word\\' or \"word\". "
-                    "This ensures the JSON response remains valid."
+                    f"You are a professional translation validator for {target_lang} language. {quotes_warning}"
                 )},
-                {"role": "user", "content": combined_prompt}
+                {"role": "user", "content": combined_prompt + f"\n\n{quotes_warning}"}
             ],
             json_schema=validation_schema
         )
