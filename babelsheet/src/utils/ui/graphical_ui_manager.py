@@ -15,6 +15,14 @@ import queue
 
 logger = logging.getLogger(__name__)
 
+class StatusIcons:
+    TRANSLATING = "⌛"
+    PREPARING = "⏳"
+    SUCCESS = "✓"
+    FAILED = "❌"
+    INFO = "📖"
+    WARNING = "⚠"
+
 class UISignals(QObject):
     """Signals for thread-safe UI updates."""
     debug_signal = pyqtSignal(str)
@@ -22,15 +30,20 @@ class UISignals(QObject):
     warning_signal = pyqtSignal(str)
     error_signal = pyqtSignal(str)
     critical_signal = pyqtSignal(str)
+    set_translation_list_signal = pyqtSignal(list) # new_items
+    update_translation_item_signal = pyqtSignal(object) # item
+
     add_translation_signal = pyqtSignal(str, str, str, str, str, object)  # source, lang, status, translation, entry_type, issues
+    update_translation_signal = pyqtSignal(object, str, str)  # item, lang, status
     complete_translation_signal = pyqtSignal(str, str, str, str)
     start_new_batch_signal = pyqtSignal()
     add_term_base_signal = pyqtSignal(str, str, str, str)
     check_thread_signal = pyqtSignal()  # New signal for checking thread status
 
 class GraphicalUIManager:
-    def __init__(self, max_history: int = 100, status_lines: int = 6, llm_handler: LLMHandler = None):
+    def __init__(self, max_history: int = 100, status_lines: int = 8, llm_handler: LLMHandler = None):
         """Initialize Graphical UI Manager."""
+        self.llm_handler = llm_handler
         self.app = QApplication([])
         self.window = QMainWindow()
         self.window.setWindowTitle("BabelSheet Translator")
@@ -45,7 +58,11 @@ class GraphicalUIManager:
         self.signals.warning_signal.connect(self._warning, Qt.ConnectionType.QueuedConnection)
         self.signals.error_signal.connect(self._error, Qt.ConnectionType.QueuedConnection)
         self.signals.critical_signal.connect(self._critical, Qt.ConnectionType.QueuedConnection)
+        self.signals.set_translation_list_signal.connect(self._set_translation_list, Qt.ConnectionType.QueuedConnection)
+        self.signals.update_translation_item_signal.connect(self._update_translation_item, Qt.ConnectionType.QueuedConnection)
+
         self.signals.add_translation_signal.connect(self._add_translation_entry, Qt.ConnectionType.QueuedConnection)
+        self.signals.update_translation_signal.connect(self._update_translation_entry, Qt.ConnectionType.QueuedConnection)
         self.signals.complete_translation_signal.connect(self._complete_translation, Qt.ConnectionType.QueuedConnection)
         self.signals.start_new_batch_signal.connect(self._start_new_batch, Qt.ConnectionType.QueuedConnection)
         self.signals.check_thread_signal.connect(self._check_thread_status, Qt.ConnectionType.QueuedConnection)
@@ -73,10 +90,11 @@ class GraphicalUIManager:
         self._setup_status_panel()
         
         # Initialize data structures
-        self.translation_history = deque(maxlen=max_history)
+        self.translation_entries = []
         self.status_messages = deque(maxlen=status_lines)
+
+        self.translation_history = deque(maxlen=max_history)
         self._current_batch = []
-        self.llm_handler = llm_handler
         
         # Statistics
         self.overall_stats = {
@@ -106,13 +124,8 @@ class GraphicalUIManager:
         self.stats_layout = QGridLayout(self.stats_widget)
         
         self.total_label = QLabel("Total Attempts: 0")
-        self.success_label = QLabel("Successful: 0 (0%)")
-        self.failed_label = QLabel("Failed: 0 (0%)")
-        
-        self.stats_layout.addWidget(QLabel("📊 Statistics"), 0, 0, 1, 2)
-        self.stats_layout.addWidget(self.total_label, 1, 0)
-        self.stats_layout.addWidget(self.success_label, 1, 1)
-        self.stats_layout.addWidget(self.failed_label, 2, 0)
+        self.stats_layout.addWidget(QLabel("📊 Statistics"), 0, 0, 1, 1)
+        self.stats_layout.addWidget(self.total_label, 0, 1)
         
         self.layout.addWidget(self.stats_widget)
 
@@ -137,6 +150,7 @@ class GraphicalUIManager:
         self.table.verticalHeader().setDefaultSectionSize(60)
         
         # Enable automatic row height adjustment
+        # TODO: Perhaps disable this
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         
         self.layout.addWidget(self.table)
@@ -148,6 +162,38 @@ class GraphicalUIManager:
         self.status_text.setMaximumHeight(150)
         self.layout.addWidget(self.status_text)
 
+
+    def set_translation_list(self, missing_translations: Dict[str, List[Dict[str, Any]]]):
+        """Set the translation list."""
+
+        new_items = []
+        for lang, items in missing_translations.items():
+            for item in items:
+                item['lang'] = lang
+                item['time'] = datetime.now().strftime("%H:%M:%S")
+                item['status'] = StatusIcons.PREPARING
+                new_items.append(item)
+
+        self.signals.set_translation_list_signal.emit(new_items)
+
+    def _set_translation_list(self, new_items: List[Dict[str, Any]]):
+        """Set the translation list."""
+        self.translation_entries.extend(new_items)
+        self._ui_repaint_all()
+
+    def update_translation_item(self, item: Dict[str, Any]):
+        """Update a single translation item."""
+        self.signals.update_translation_item_signal.emit(item)
+
+    def _update_translation_item(self, item: Dict[str, Any]):
+        """Update a single translation item."""
+        for i, entry in enumerate(self.translation_entries):
+            if entry['source_text'] == item['source_text'] and entry['lang'] == item['lang']:
+                self._ui_update_table_row(i, item)
+                return
+        
+        self.critical(f"Failed to find translation item: {item}")
+
     def _create_table_item(self, text: str, multiline: bool = False) -> QTableWidgetItem:
         """Create a table item with proper formatting."""
         item = QTableWidgetItem(text)
@@ -157,79 +203,88 @@ class GraphicalUIManager:
             item.setTextAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         return item
 
-    def _get_status_color(self, status: str, entry_type: str) -> QColor:
+    def _get_status_color(self, status: str) -> QColor:
         """Get the color for a status."""
-        if entry_type == "term_base":
-            return QColor(0, 0, 255, 50)  # Blue with alpha
-        elif status.startswith("✓"):
+        #if entry_type == "term_base":
+        #    return QColor(0, 0, 255, 50)  # Blue with alpha
+        if status.startswith(StatusIcons.SUCCESS):
             return QColor(0, 255, 0, 50)  # Green with alpha
-        elif status.startswith("❌"):
+        elif status.startswith(StatusIcons.FAILED):
             return QColor(255, 0, 0, 50)  # Red with alpha
-        elif status.startswith("⏳") or status.startswith("⌛"):
+        elif status.startswith(StatusIcons.PREPARING) or status.startswith(StatusIcons.TRANSLATING):
             return QColor(255, 255, 0, 50)  # Yellow with alpha
         else:
             return QColor(128, 128, 128, 50)  # Gray with alpha
 
-    def _format_translation_text(self, translation: str, entry: dict) -> str:
+    def ________format_translation_text(self, translation: str, entry: dict) -> str:
         """Format translation text with issues and previous attempts."""
         text_parts = []
         
         # Add current translation or status
         if translation.startswith("⏳") or translation.startswith("⌛"):
             text_parts.append(translation)
+            # If we have a previous translation during retry, show it
+            if entry.get("last_translation"):
+                text_parts.append("\nPrevious translation:")
+                text_parts.append(entry["last_translation"])
         else:
             text_parts.append(translation)
             
-            # Add current issues if any
-            if entry.get("issues"):
-                text_parts.append("\n" + "=" * 40)
-                text_parts.append("Current Issues:")
-                issues = entry["issues"]
-                if isinstance(issues, list):
-                    for issue in issues:
-                        if isinstance(issue, list):
-                            text_parts.extend(f"• {i}" for i in issue)
-                        else:
-                            # Handle string issues
+        # Add current issues if any
+        if entry.get("issues"):
+            text_parts.append("\n" + "=" * 40)
+            text_parts.append("Current Issues:")
+            issues = entry["issues"]
+            if isinstance(issues, list):
+                for issue in issues:
+                    if isinstance(issue, list):
+                        text_parts.extend(f"• {i}" for i in issue)
+                    else:
+                        # Handle string issues
+                        text_parts.append(f"• {str(issue)}")
+            else:
+                # If issues is a string, treat it as a single issue
+                text_parts.append(f"• {str(issues)}")
+        
+        # Add previous attempts if any
+        if entry.get("last_issues"):
+            text_parts.append("\n" + "=" * 40)
+            text_parts.append("Previous Attempts:")
+            for attempt in entry["last_issues"]:
+                text_parts.append(f"\n▶ Translation: {attempt['translation']}")
+                if attempt['issues']:
+                    text_parts.append("Issues:")
+                    if isinstance(attempt['issues'], list):
+                        for issue in attempt['issues']:
                             text_parts.append(f"• {str(issue)}")
-                else:
-                    # If issues is a string, treat it as a single issue
-                    text_parts.append(f"• {str(issues)}")
-            
-            # Add previous attempts if any
-            if entry.get("last_issues"):
-                text_parts.append("\n" + "=" * 40)
-                text_parts.append("Previous Attempts:")
-                for attempt in entry["last_issues"]:
-                    text_parts.append(f"\n▶ Translation: {attempt['translation']}")
-                    if attempt['issues']:
-                        text_parts.append("Issues:")
-                        if isinstance(attempt['issues'], list):
-                            for issue in attempt['issues']:
-                                text_parts.append(f"• {str(issue)}")
-                        else:
-                            text_parts.append(f"• {str(attempt['issues'])}")
-                    text_parts.append("-" * 40)
+                    else:
+                        text_parts.append(f"• {str(attempt['issues'])}")
+                text_parts.append("-" * 40)
         
         return "\n".join(text_parts)
 
-    def _update_display(self):
-        """Update the display with current data."""
-        # Update statistics
+    def _ui_update_statistics(self):
+        """Update the statistics display."""
         total = self.overall_stats['total_attempts']
         if total > 0:
             success_rate = (self.overall_stats['successful'] / total) * 100
             fail_rate = (self.overall_stats['failed'] / total) * 100
         else:
             success_rate = fail_rate = 0.0
-            
-        self.total_label.setText(f"Total Attempts: {total}")
-        self.success_label.setText(f"Successful: {self.overall_stats['successful']} ({success_rate:.1f}%)")
-        self.failed_label.setText(f"Failed: {self.overall_stats['failed']} ({fail_rate:.1f}%)")
-        
+        self.total_label.setText(f"Total Attempts: {total}, {StatusIcons.INFO} {self.overall_stats['successful']} ({success_rate:.1f}%) {StatusIcons.FAILED} {self.overall_stats['failed']} ({fail_rate:.1f}%)")
+
+    def _ui_update_console(self):
+        """Update the status messages display."""
+        # Update status panel
+        status_text = ""
+        for msg in self.status_messages:
+            status_text += f"{msg}\n"
+        self.status_text.setText(status_text)
+
+    def _ui_update_translation_table(self):
+        """Update the translation table."""
         # Update translation table only if there are changes
-        all_entries = list(self._current_batch)
-        all_entries.extend(self.translation_history)
+        all_entries = self.translation_entries
         
         # Temporarily disable auto-resizing
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
@@ -240,34 +295,39 @@ class GraphicalUIManager:
         
         # Update all rows
         for i, entry in enumerate(reversed(all_entries)):
-            self._update_table_row(i, entry)
+            self._ui_update_table_row(i, entry)
         
         # Re-enable and perform one-time resize
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        
-        # Update status panel
-        status_text = ""
-        for msg in self.status_messages:
-            status_text += f"{msg}\n"
-        self.status_text.setText(status_text)
 
-    def _update_table_row(self, row_idx: int, entry: dict):
+    def _ui_update_table_row(self, row_idx: int, entry: dict):
         """Update a single table row."""
         time_item = self._create_table_item(entry["time"])
-        source_item = self._create_table_item(entry["source"], multiline=True)
+        source_item = self._create_table_item(entry["source_text"], multiline=True)
         lang_item = self._create_table_item(entry["lang"])
         status_item = self._create_table_item(entry["status"])
         
-        translation = entry["translation"]
-        if isinstance(translation, str):
-            trans_text = self._format_translation_text(translation, entry)
-        else:
-            trans_text = translation.plain
-            
-        translation_item = self._create_table_item(trans_text, multiline=True)
+        translation = entry.get("translation", "")
+
+        if entry.get("issues"):
+            translation += "\n" + "=" * 40
+            translation += "\nCurrent Issues:"
+            translation += "\n" + "\n".join(entry["issues"])
+
+        if entry.get("last_issues"):
+            translation += "\n" + "=" * 40
+            translation += "\nPrevious Attempts:"
+            translation += f"\n▶ {entry.get('last_translation', '')}"
+            for attempt in entry["last_issues"]:
+                translation += f"\n▶ Translation: {attempt['translation']}"
+                if attempt['issues']:
+                    translation += "\nIssues:"
+                    translation += "\n" + "\n".join(attempt['issues'])
+
+        translation_item = self._create_table_item(translation, multiline=True)
         
         # Set colors based on status
-        color = self._get_status_color(entry["status"], entry["type"])
+        color = self._get_status_color(entry["status"])
         for item in [time_item, source_item, lang_item, status_item, translation_item]:
             item.setBackground(color)
             
@@ -279,6 +339,15 @@ class GraphicalUIManager:
         
         # Adjust row height if needed
         self.table.resizeRowToContents(row_idx)
+
+    def _ui_repaint_all(self):
+        """Update the display with current data."""
+        self._ui_update_statistics()
+        self._ui_update_translation_table()
+        self._ui_update_console()
+
+
+
 
     def _check_thread_status(self):
         """Check translation thread status and handle errors."""
@@ -339,11 +408,43 @@ class GraphicalUIManager:
         """Thread-safe critical message."""
         self.signals.critical_signal.emit(message)
 
-    def add_translation_entry(self, source: str, lang: str, status: str = "⏳", translation: str = "", issues: list = None, entry_type: str = "translation"):
+    def _debug(self, message: str):
+        """Internal debug handler (runs in main thread)."""
+        self.status_messages.append(f"[DEBUG] {message}")
+        self._ui_update_console()
+
+    def _info(self, message: str):
+        """Internal info handler (runs in main thread)."""
+        self.status_messages.append(f"[INFO] {message}")
+        self._ui_update_console()
+
+    def _warning(self, message: str):
+        """Internal warning handler (runs in main thread)."""
+        self.status_messages.append(f"[WARNING] {message}")
+        self._ui_update_console()
+
+    def _error(self, message: str):
+        """Internal error handler (runs in main thread)."""
+        self.status_messages.append(f"[ERROR] {message}")
+        self._ui_update_console()
+
+    def _critical(self, message: str):
+        """Internal critical handler (runs in main thread)."""
+        self.status_messages.append(f"[CRITICAL] {message}")
+        self._ui_update_console()
+
+
+
+
+    def add_translation_entry(self, source: str, lang: str, status: str = StatusIcons.PREPARING, translation: str = "", issues: list = None, entry_type: str = "translation"):
         """Thread-safe add translation entry."""
         if issues is None:
             issues = []
         self.signals.add_translation_signal.emit(source, lang, status, translation, entry_type, issues)
+
+    def update_translation_entry(self, item, lang: str, status: str = StatusIcons.PREPARING):
+        """Thread-safe update translation entry."""
+        self.signals.update_translation_signal.emit(item, lang, status)
 
     def complete_translation(self, source: str, lang: str, translation: str, error: str = ""):
         """Thread-safe complete translation."""
@@ -355,36 +456,12 @@ class GraphicalUIManager:
 
     def add_term_base_entry(self, term: str, lang: str, translation: str = "", comment: str = ""):
         """Thread-safe add term base entry."""
-        status = "📖"
+        status = StatusIcons.INFO
         full_translation = translation
         if comment:
             full_translation += f" (Comment: {comment})"
         self.add_translation_entry(term, lang, status, full_translation, [], "term_base")
 
-    def _debug(self, message: str):
-        """Internal debug handler (runs in main thread)."""
-        self.status_messages.append(f"[DEBUG] {message}")
-        self._update_display()
-
-    def _info(self, message: str):
-        """Internal info handler (runs in main thread)."""
-        self.status_messages.append(f"[INFO] {message}")
-        self._update_display()
-
-    def _warning(self, message: str):
-        """Internal warning handler (runs in main thread)."""
-        self.status_messages.append(f"[WARNING] {message}")
-        self._update_display()
-
-    def _error(self, message: str):
-        """Internal error handler (runs in main thread)."""
-        self.status_messages.append(f"[ERROR] {message}")
-        self._update_display()
-
-    def _critical(self, message: str):
-        """Internal critical handler (runs in main thread)."""
-        self.status_messages.append(f"[CRITICAL] {message}")
-        self._update_display()
 
     def _find_existing_entry(self, source: str, lang: str) -> tuple[Optional[dict], Optional[int]]:
         """Find existing entry in current batch or history."""
@@ -438,6 +515,21 @@ class GraphicalUIManager:
             }
             self._current_batch.append(entry)
             
+        self._update_display()
+
+    def _update_translation_entry(self, item, lang: str, status: str):
+        """Internal update translation entry handler (runs in main thread)."""
+
+        item['lang'] = lang
+        item['status'] = status
+
+        for idx, entry in enumerate(self.translation_entries):
+            if entry["source"] == item["source"] and entry["lang"] == item["lang"]:
+                self.translation_entries[idx] = item
+                self._update_display()
+                return
+
+        self.translation_entries.append(item)
         self._update_display()
 
     def _complete_translation(self, source: str, lang: str, translation: str, error: str = ""):

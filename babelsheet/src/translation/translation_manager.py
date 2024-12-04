@@ -7,6 +7,7 @@ import logging
 import pathlib
 from ..utils.llm_handler import LLMHandler
 from ..utils.ui_manager import UIManager
+from ..utils.ui.graphical_ui_manager import StatusIcons
 from ..utils.qa_handler import QAHandler
 from ..term_base.term_base_handler import TermBaseHandler
 from ..sheets.sheets_handler import SheetsHandler, CellData
@@ -224,14 +225,13 @@ class TranslationManager:
             for row_idx in range(rows_count):
                 source_cell = df.iloc[row_idx][source_lang_idx]
                 # Skip if source text is empty
-                if source_cell is None or source_cell.is_empty():
+                if source_cell is None or pd.isna(source_cell) or (hasattr(source_cell, 'is_empty') and source_cell.is_empty()):
                     logger.debug(f"Skipping row {row_idx} for language {lang} because source text is empty")
                     continue
 
                 target_cell = df.iloc[row_idx][lang_idx]
-                #logger.debug(f"Checking row {row_idx} for language {lang}: {source_cell.value} -> {target_cell}")
                 # Check if translation is missing or empty
-                if target_cell is None or target_cell.is_empty():
+                if target_cell is None or pd.isna(target_cell) or (hasattr(target_cell, 'is_empty') and target_cell.is_empty()):
                     if pd.isna(target_cell):
                         target_cell = CellData(value=None)
                         df.loc[row_idx, lang_idx] = target_cell
@@ -242,7 +242,7 @@ class TranslationManager:
                         'sheet_name': df.attrs['sheet_name'],
                         'row_idx': row_idx,
                         'col_idx': lang_idx,
-                        'source_text': source_cell.value,
+                        'source_text': source_cell.value if hasattr(source_cell, 'value') else str(source_cell),
                         'target_cell': target_cell,
                         'context': context
                     })
@@ -347,6 +347,8 @@ class TranslationManager:
         
         self.ui.debug(f"Starting batch translation for {len(missing_translations)} languages ({total_items} items total)")
 
+        self.ui.set_translation_list(missing_translations)
+
         last_lang = None
         async def check_language_change(lang: str) -> None:
             nonlocal last_lang
@@ -393,12 +395,8 @@ class TranslationManager:
                 try:
                     # Update UI status for each item
                     for item in batch:
-                        self.ui.complete_translation(
-                            item['source_text'],
-                            lang,
-                            "⌛ Translating...",
-                            ""
-                        )
+                        item['status'] = StatusIcons.TRANSLATING
+                        self.ui.update_translation_item(item)
                     
                     # Perform the actual translation
                     batch_translations = await self._perform_translation(
@@ -411,18 +409,29 @@ class TranslationManager:
                     )
                     
                     # Process results
-                    for idx, (missing_item, (translation, issues)) in enumerate(zip(batch, batch_translations)):
+                    for idx, (missing_item, translation_item) in enumerate(zip(batch, batch_translations)):
                         processed_items += 1
                         sheet_name = missing_item['sheet_name']
+                        translation = translation_item['translation']
+                        issues = translation_item['issues']
                         
+                        missing_item['translation'] = translation
+
                         if issues:
-                            all_issues = missing_item.get('last_issues', []) + [{
-                                'translation': translation,
-                                'issues': issues,
-                            }]
-                            missing_item['last_issues'] = all_issues
+                            # Store current attempt before updating issues
+                            if 'last_issues' not in missing_item:
+                                missing_item['last_issues'] = []
+                            if missing_item.get('last_translation'):
+                                missing_item['last_issues'].append({
+                                    'translation': missing_item['last_translation'],
+                                    'issues': missing_item.get('current_issues', [])
+                                })
                             
-                            if len(all_issues) >= self.max_retries:
+                            # Update current state
+                            missing_item['last_translation'] = translation
+                            missing_item['current_issues'] = issues
+                            
+                            if len(missing_item['last_issues']) >= self.max_retries - 1:
                                 self.ui.critical(f"Max retries reached for {lang} item {missing_item['source_text']}. Giving up.")
                                 skipped_items.append(missing_item)
                                 missing_items.remove(missing_item)
@@ -434,7 +443,7 @@ class TranslationManager:
                                     'lang': lang,
                                     'source_text': missing_item['source_text'],
                                     'last_translation': translation,
-                                    'issues': [str(issue['issues']) for issue in all_issues]
+                                    'issues': [str(issue['issues']) for issue in missing_item['last_issues']]
                                 }
                                 self.stats['failed_items'].append(failed_item)
                                 self._log_failed_translation(failed_item)
@@ -457,7 +466,7 @@ class TranslationManager:
                                 self.ui.add_translation_entry(
                                     missing_item['source_text'], 
                                     lang, 
-                                    "⏳ Retrying...",
+                                    "❌ Failed - Retrying...",
                                     translation,
                                     issues=issues
                                 )
@@ -782,7 +791,7 @@ Return translations and term suggestions in a structured JSON format."""
                 llm_validation_indexes.append(i)
             
             # Store initial results with syntax issues
-            results.append((translated_text, syntax_issues))
+            results.append({"translation": translated_text, "issues": syntax_issues})
         
         # Perform batch LLM validation if needed
         if llm_validation_items:
@@ -790,9 +799,9 @@ Return translations and term suggestions in a structured JSON format."""
 
             # Update results with LLM validation issues
             for batch_idx, result_idx in enumerate(llm_validation_indexes):
-                translated_text, current_issues = results[result_idx]
                 llm_issues = llm_results[batch_idx] if len(llm_results) >= batch_idx else ["Invalid JSON response from LLM"]
-                results[result_idx] = (translated_text, current_issues + llm_issues)
+                if len(llm_issues) > 0:
+                    results[result_idx]["issues"].append(llm_issues)
         
         return results
 

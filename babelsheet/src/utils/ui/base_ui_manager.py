@@ -225,18 +225,19 @@ class UIManager:
         self._current_batch.append(entry)
         self._update_display()
         
-    def complete_translation(self, source: str, lang: str, translation: str, error: str = ""):
+    def complete_translation(self, item: Dict[str, Any]):
         """Mark a translation as complete."""
-        status = "❌" if error else "✓"
+        item['status'] = "❌" if item['error'] else "✓"
         
         # Update overall statistics
         self.overall_stats['total_attempts'] += 1
-        if error:
+        if item['error']:
             self.overall_stats['failed'] += 1
         else:
             self.overall_stats['successful'] += 1
             
-        self.add_translation_entry(source, lang, status, translation, error)
+        self.update_translation_item(item)
+
         
     def start_new_batch(self, llm_handler):
         """Move current batch to history and start a new one."""
