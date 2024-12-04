@@ -379,6 +379,7 @@ class TranslationManager:
                 
                 # Add pending translations to UI with progress indicator
                 for item in batch:
+                    item['status'] = StatusIcons.TRANSLATING + " Translating..."
                     self.ui.on_translation_started(item)
                 
                 # Update UI with batch progress
@@ -389,11 +390,6 @@ class TranslationManager:
                 
                 #try:
                 if True:
-                    # Update UI status for each item
-                    for item in batch:
-                        item['status'] = StatusIcons.TRANSLATING
-                        self.ui.update_translation_item(item)
-                    
                     # Perform the actual translation
                     batch_translations = await self._perform_translation(
                         source_texts=[item['source_text'] for item in batch],
@@ -445,9 +441,11 @@ class TranslationManager:
                                 self.stats['failed_items'].append(failed_item)
                                 self._log_failed_translation(failed_item)
                                 
-                                self.ui.on_translation_ended(item)
+                                missing_item['status'] = StatusIcons.FAILED + " Failed"
+                                self.ui.on_translation_ended(missing_item)
                             else:
                                 # Keep the item in the list for retry, but mark it as in progress
+                                missing_item['status'] = StatusIcons.RETRYING + " Retrying..."
                                 self.ui.on_translation_started(missing_item)
                         else:
                             # Only handle as successful if there are no issues
@@ -457,6 +455,7 @@ class TranslationManager:
                                 col=missing_item['col_idx'],
                                 value=translation
                             )
+                            missing_item['status'] = StatusIcons.SUCCESS
                             missing_items.remove(missing_item)
                             self.ui.on_translation_ended(missing_item)
                             
@@ -472,6 +471,7 @@ class TranslationManager:
                     # Update UI for failed items
                     for item in batch:
                         item['error'] = error_msg
+                        item['status'] = StatusIcons.FAILED + " Failed"
                         self.ui.on_translation_ended(item)
                     continue
                 """

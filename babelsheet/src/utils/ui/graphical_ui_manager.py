@@ -16,14 +16,14 @@ import queue
 logger = logging.getLogger(__name__)
 
 class StatusIcons:
-    WAITING = " "  # Stopwatch - shows waiting state clearly
-    PREPARING = "⌛"  # Hammer and wrench - shows setup/preparation
-    TRANSLATING = "📖"  # Arrows in circle - indicates ongoing process
-    VALIDATING = "🔍"  # Magnifying glass - indicates validation
-    SUCCESS = "✅"  # Direct hit - shows perfect completion
-    FAILED = "❌"  # Broken heart - more friendly than prohibition signs
-    INFO = "💡"  # Light bulb - represents information/knowledge
-    WARNING = "⚠️"  # Police car light - grabs attention for warnings
+    WAITING = " "
+    TRANSLATING = "📖📝✍️"
+    VALIDATING = "🔍"
+    RETRYING = "⟳🔄♻️🔁⭮"
+    SUCCESS = "✔️"
+    FAILED = "❌"
+    INFO = "💡"
+    WARNING = "⚠️"
 
 
 class UISignals(QObject):
@@ -188,7 +188,7 @@ class GraphicalUIManager:
             return QColor(255, 0, 0, 50)  # Red with alpha
         elif status.startswith(StatusIcons.VALIDATING) \
             or status.startswith(StatusIcons.TRANSLATING) \
-            or status.startswith(StatusIcons.PREPARING):
+            or status.startswith(StatusIcons.RETRYING):
             return QColor(255, 255, 0, 50)  # Yellow with alpha
         else:
             return QColor(192, 192, 192, 50)  # Gray with alpha
@@ -203,12 +203,13 @@ class GraphicalUIManager:
             success_rate = fail_rate = 0.0
         self.total_label.setText(f"Total Attempts: {total}/{len(self.translation_entries)}, {StatusIcons.SUCCESS} {self.overall_stats['successful']} ({success_rate:.1f}%), {StatusIcons.FAILED} {self.overall_stats['failed']} ({fail_rate:.1f}%)")
 
-        llm_stats = self.llm_handler.get_usage_stats()
-        prompt_tokens = llm_stats.get("prompt_tokens", 0)
-        completion_tokens = llm_stats.get("completion_tokens", 0)
-        total_tokens = llm_stats.get("total_tokens", 0)
-        total_cost = llm_stats.get("total_cost", 0)
-        self.llm_stats_label.setText(f"LLM tokens: {total_tokens} ({prompt_tokens} prompt, {completion_tokens} completion), cost: ${total_cost:.6f}")
+        if self.llm_handler:
+            llm_stats = self.llm_handler.get_usage_stats()
+            prompt_tokens = llm_stats.get("prompt_tokens", 0)
+            completion_tokens = llm_stats.get("completion_tokens", 0)
+            total_tokens = llm_stats.get("total_tokens", 0)
+            total_cost = llm_stats.get("total_cost", 0)
+            self.llm_stats_label.setText(f"LLM tokens: {total_tokens} ({prompt_tokens} prompt, {completion_tokens} completion), cost: ${total_cost:.6f}")
 
     def _ui_update_console(self):
         """Update the status messages display."""
@@ -218,7 +219,7 @@ class GraphicalUIManager:
             status_text += f"{msg}\n"
         self.status_text.setText(status_text)
 
-    def _ui_update_translation_table(self):
+    def _ui_repaint_translation_table(self):
         """Update the translation table."""
         # Update translation table only if there are changes
         all_entries = self.translation_entries
@@ -231,7 +232,7 @@ class GraphicalUIManager:
             self.table.setRowCount(len(all_entries))
         
         # Update all rows
-        for i, entry in enumerate(reversed(all_entries)):
+        for i, entry in enumerate(all_entries):
             self._ui_update_table_row(i, entry)
         
         # Re-enable and perform one-time resize
@@ -273,7 +274,7 @@ class GraphicalUIManager:
     def _ui_repaint_all(self):
         """Update the display with current data."""
         self._ui_update_statistics()
-        self._ui_update_translation_table()
+        self._ui_repaint_translation_table()
         self._ui_update_console()
 
 
@@ -386,10 +387,11 @@ class GraphicalUIManager:
         """Update a single translation item."""
         idx = self._find_item_index(item)
         if idx != -1:
+            self.translation_entries[idx] = item
             self._ui_update_table_row(idx, item)
             return
         
-        self.critical(f"Failed to find translation item: {item}")
+        raise Exception(f"Failed to find translation item: {item}")
 
 
     def on_translation_started(self, item):
@@ -397,7 +399,6 @@ class GraphicalUIManager:
         self.signals.on_translation_started_signal.emit(item)
     def _on_translation_started(self, item):
         """Internal add translation handler (runs in main thread)."""
-        item["status"] = StatusIcons.TRANSLATING + " Translating"
         self._update_translation_item(item)
 
     def on_translation_ended(self, item):
@@ -449,3 +450,25 @@ class GraphicalUIManager:
         }
         #self._current_batch.append(entry)
         #self._update_display()
+
+
+    def print_overall_stats(self):
+        """Print overall statistics."""
+        total = self.overall_stats['total_attempts']
+        if total > 0:
+            success_rate = (self.overall_stats['successful'] / total) * 100
+            fail_rate = (self.overall_stats['failed'] / total) * 100
+        else:
+            success_rate = fail_rate = 0.0
+            
+        self.info("\n📊 Overall Translation Statistics")
+        self.info("─" * 40)
+        self.info(f"Total Translation Attempts: {total}")
+        self.info(f"Successful Translations: {self.overall_stats['successful']} ({success_rate:.1f}%)")
+        self.info(f"Failed Translations: {self.overall_stats['failed']} ({fail_rate:.1f}%)")
+
+        if self.llm_handler:
+            usage_stats = self.llm_handler.get_usage_stats()
+            self.info("─" * 40)
+            self.info(f"Total tokens used: {usage_stats['total_tokens']} ({usage_stats['prompt_tokens']} prompt + {usage_stats['completion_tokens']} completion)")
+            self.info(f"Total cost: ${usage_stats['total_cost']:.4f}")

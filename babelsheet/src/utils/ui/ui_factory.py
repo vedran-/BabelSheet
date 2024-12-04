@@ -4,7 +4,7 @@ from .console_ui_manager import ConsoleUIManager
 from .graphical_ui_manager import GraphicalUIManager
 from ..llm_handler import LLMHandler
 
-def create_ui_manager(config: Dict[str, Any], llm_handler: LLMHandler, max_history: int = 100, status_lines: int = 6) -> UIManager:
+def create_ui_manager(config: Dict[str, Any], llm_handler: LLMHandler, max_history: int = 100, status_lines: int = 9) -> UIManager:
     """Create the appropriate UI manager based on configuration.
     
     Args:

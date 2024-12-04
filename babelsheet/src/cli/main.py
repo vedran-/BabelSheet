@@ -248,7 +248,7 @@ async def translate(ctx, target_langs, verbose):
         )
 
         logger.debug("Translation completed")
-        translation_manager.ui.print_overall_stats()
+        ctx.ui.print_overall_stats()
 
     except Exception as e:
         logger.error(f"Error in translate function: {str(e)}")
