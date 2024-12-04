@@ -56,7 +56,7 @@ class ConsoleUIManager:
         """Stop logging - no-op in console mode."""
         pass
         
-    def add_translation_entry(self, source: str, lang: str, status: str = "⏳", 
+    def on_translation_started(self, source: str, lang: str, status: str = "⏳", 
                             translation: str = "", error: str = "", entry_type: str = "translation"):
         """Log a translation entry."""
         if status == "⏳":  # Skip in-progress entries
@@ -98,7 +98,7 @@ class ConsoleUIManager:
         # Print the output
         self.console.print(output)
         
-    def complete_translation(self, source: str, lang: str, translation: str, error: str = ""):
+    def on_translation_ended(self, source: str, lang: str, translation: str, error: str = ""):
         """Log a completed translation."""
         status = "❌" if error else "✓"
         
@@ -109,7 +109,7 @@ class ConsoleUIManager:
         else:
             self.overall_stats['successful'] += 1
             
-        self.add_translation_entry(source, lang, status, translation, error)
+        self.on_translation_started(source, lang, status, translation, error)
         
     def start_new_batch(self, llm_handler=None):
         """Start a new batch - prints a separator and overall stats in console mode."""
@@ -162,4 +162,4 @@ class ConsoleUIManager:
                 translation_text.append(" ")
             translation_text.append("(Comment: " + comment + ")")  # Comment in default color
                 
-        self.add_translation_entry(term, lang, status, translation_text, entry_type="term_base") 
+        self.on_translation_started(term, lang, status, translation_text, entry_type="term_base") 

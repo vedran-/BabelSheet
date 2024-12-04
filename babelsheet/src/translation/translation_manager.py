@@ -379,12 +379,7 @@ class TranslationManager:
                 
                 # Add pending translations to UI with progress indicator
                 for item in batch:
-                    self.ui.add_translation_entry(
-                        item['source_text'], 
-                        lang, 
-                        "⏳ Preparing...",
-                        "Translation in progress..."
-                    )
+                    self.ui.on_translation_started(item)
                 
                 # Update UI with batch progress
                 self.ui.info(f"Processing batch of {len(batch)} items ({processed_items + 1}-{processed_items + len(batch)} of {total_items})")
@@ -448,13 +443,7 @@ class TranslationManager:
                                 self.stats['failed_items'].append(failed_item)
                                 self._log_failed_translation(failed_item)
                                 
-                                # Convert issues to list if it's a string
-                                if isinstance(issues, str):
-                                    issues = [issues]
-                                elif isinstance(issues, list):
-                                    issues = [str(i) for i in issues]
-                                
-                                self.ui.complete_translation(missing_item['source_text'], lang, translation, str(issues))
+                                self.ui.on_translation_ended(item)
                             else:
                                 # Keep the item in the list for retry, but mark it as in progress
                                 # Convert issues to list if it's a string
@@ -463,13 +452,7 @@ class TranslationManager:
                                 elif isinstance(issues, list):
                                     issues = [str(i) for i in issues]
                                 
-                                self.ui.add_translation_entry(
-                                    missing_item['source_text'], 
-                                    lang, 
-                                    "❌ Failed - Retrying...",
-                                    translation,
-                                    issues=issues
-                                )
+                                self.ui.on_translation_started(missing_item)
                         else:
                             # Only handle as successful if there are no issues
                             self.sheets_handler.modify_cell_data(
@@ -479,12 +462,11 @@ class TranslationManager:
                                 value=translation
                             )
                             missing_items.remove(missing_item)
-                            self.ui.complete_translation(missing_item['source_text'], lang, translation)
+                            self.ui.on_translation_ended(missing_item['source_text'], lang, translation)
                             
                             # Track successful translation and log it
                             self.stats['successful_translations'] += 1
                             self._log_successful_translation(sheet_name, lang, missing_item['source_text'], translation)
-                    
                 except Exception as e:
                     error_msg = f"Error processing batch: {str(e)}"
                     self.ui.error(error_msg)
@@ -801,7 +783,7 @@ Return translations and term suggestions in a structured JSON format."""
             for batch_idx, result_idx in enumerate(llm_validation_indexes):
                 llm_issues = llm_results[batch_idx] if len(llm_results) >= batch_idx else ["Invalid JSON response from LLM"]
                 if len(llm_issues) > 0:
-                    results[result_idx]["issues"].append(llm_issues)
+                    results[result_idx]["issues"].extend(llm_issues)
         
         return results
 

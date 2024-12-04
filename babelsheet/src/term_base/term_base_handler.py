@@ -13,7 +13,6 @@ class TermBaseHandler:
         self.sheet_name = ctx.config['term_base']['sheet_name']
         self.term_column_name = ctx.source_lang
         self.logger = logging.getLogger(__name__)
-        # Initialize UI Manager with configuration
         self.ui = ctx.ui
         self.load_term_base()
         

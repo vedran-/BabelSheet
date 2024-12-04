@@ -33,9 +33,9 @@ class UISignals(QObject):
     set_translation_list_signal = pyqtSignal(list) # new_items
     update_translation_item_signal = pyqtSignal(object) # item
 
-    add_translation_signal = pyqtSignal(str, str, str, str, str, object)  # source, lang, status, translation, entry_type, issues
-    update_translation_signal = pyqtSignal(object, str, str)  # item, lang, status
-    complete_translation_signal = pyqtSignal(str, str, str, str)
+    on_translation_started_signal = pyqtSignal(object)  # item
+    on_translation_ended_signal = pyqtSignal(object)
+
     start_new_batch_signal = pyqtSignal()
     add_term_base_signal = pyqtSignal(str, str, str, str)
     check_thread_signal = pyqtSignal()  # New signal for checking thread status
@@ -61,9 +61,8 @@ class GraphicalUIManager:
         self.signals.set_translation_list_signal.connect(self._set_translation_list, Qt.ConnectionType.QueuedConnection)
         self.signals.update_translation_item_signal.connect(self._update_translation_item, Qt.ConnectionType.QueuedConnection)
 
-        self.signals.add_translation_signal.connect(self._add_translation_entry, Qt.ConnectionType.QueuedConnection)
-        self.signals.update_translation_signal.connect(self._update_translation_entry, Qt.ConnectionType.QueuedConnection)
-        self.signals.complete_translation_signal.connect(self._complete_translation, Qt.ConnectionType.QueuedConnection)
+        self.signals.on_translation_started_signal.connect(self._on_translation_started, Qt.ConnectionType.QueuedConnection)
+        self.signals.on_translation_ended_signal.connect(self._on_translation_ended, Qt.ConnectionType.QueuedConnection)
         self.signals.start_new_batch_signal.connect(self._start_new_batch, Qt.ConnectionType.QueuedConnection)
         self.signals.check_thread_signal.connect(self._check_thread_status, Qt.ConnectionType.QueuedConnection)
         
@@ -93,9 +92,6 @@ class GraphicalUIManager:
         self.translation_entries = []
         self.status_messages = deque(maxlen=status_lines)
 
-        self.translation_history = deque(maxlen=max_history)
-        self._current_batch = []
-        
         # Statistics
         self.overall_stats = {
             'total_attempts': 0,
@@ -103,15 +99,10 @@ class GraphicalUIManager:
             'failed': 0
         }
         
-        # Setup update timer for periodic UI updates
-        self.update_timer = QTimer()
-        self.update_timer.timeout.connect(self._update_display)
-        self.update_timer.start(250)  # Update every 250ms
-        
         # Setup thread check timer
         self.thread_check_timer = QTimer()
         self.thread_check_timer.timeout.connect(lambda: self.signals.check_thread_signal.emit())
-        self.thread_check_timer.start(100)  # Check every 100ms
+        self.thread_check_timer.start(50)  # Check every 50ms
         
         # Thread management
         self.should_stop = False
@@ -162,6 +153,12 @@ class GraphicalUIManager:
         self.status_text.setMaximumHeight(150)
         self.layout.addWidget(self.status_text)
 
+    def _find_item_index(self, item) -> int:
+        """Find the index of an item in the translation entries."""
+        for i, entry in enumerate(self.translation_entries):
+            if entry['source_text'] == item['source_text'] and entry['lang'] == item['lang']:
+                return i
+        return -1
 
     def set_translation_list(self, missing_translations: Dict[str, List[Dict[str, Any]]]):
         """Set the translation list."""
@@ -187,10 +184,10 @@ class GraphicalUIManager:
 
     def _update_translation_item(self, item: Dict[str, Any]):
         """Update a single translation item."""
-        for i, entry in enumerate(self.translation_entries):
-            if entry['source_text'] == item['source_text'] and entry['lang'] == item['lang']:
-                self._ui_update_table_row(i, item)
-                return
+        idx = self._find_item_index(item)
+        if idx != -1:
+            self._ui_update_table_row(idx, item)
+            return
         
         self.critical(f"Failed to find translation item: {item}")
 
@@ -309,20 +306,13 @@ class GraphicalUIManager:
         
         translation = entry.get("translation", "")
 
-        if entry.get("issues"):
-            translation += "\n" + "=" * 40
-            translation += "\nCurrent Issues:"
-            translation += "\n" + "\n".join(entry["issues"])
-
         if entry.get("last_issues"):
             translation += "\n" + "=" * 40
             translation += "\nPrevious Attempts:"
-            translation += f"\n▶ {entry.get('last_translation', '')}"
             for attempt in entry["last_issues"]:
-                translation += f"\n▶ Translation: {attempt['translation']}"
+                translation += f"\n▶ Translation: '{attempt['translation']}'"
                 if attempt['issues']:
-                    translation += "\nIssues:"
-                    translation += "\n" + "\n".join(attempt['issues'])
+                    translation += "\n * " + "\n *".join(attempt['issues'])
 
         translation_item = self._create_table_item(translation, multiline=True)
         
@@ -436,23 +426,34 @@ class GraphicalUIManager:
 
 
 
-    def add_translation_entry(self, source: str, lang: str, status: str = StatusIcons.PREPARING, translation: str = "", issues: list = None, entry_type: str = "translation"):
+    def on_translation_started(self, item):
         """Thread-safe add translation entry."""
-        if issues is None:
-            issues = []
-        self.signals.add_translation_signal.emit(source, lang, status, translation, entry_type, issues)
+        self.signals.on_translation_started_signal.emit(item)
+    def _on_translation_started(self, item):
+        """Internal add translation handler (runs in main thread)."""
+        item["status"] = StatusIcons.TRANSLATING
+        self._update_translation_item(item)
 
-    def update_translation_entry(self, item, lang: str, status: str = StatusIcons.PREPARING):
-        """Thread-safe update translation entry."""
-        self.signals.update_translation_signal.emit(item, lang, status)
-
-    def complete_translation(self, source: str, lang: str, translation: str, error: str = ""):
+    def on_translation_ended(self, item):
         """Thread-safe complete translation."""
-        self.signals.complete_translation_signal.emit(source, lang, translation, error)
+        self.signals.on_translation_ended_signal.emit(item)
+    def _on_translation_ended(self, item):
+        """Internal complete translation handler (runs in main thread)."""
+        is_error = item.get("error")
+        item["status"] = StatusIcons.SUCCESS if not is_error else StatusIcons.FAILED
+        self.overall_stats["total_attempts"] += 1
+        if is_error:
+            self.overall_stats["failed"] += 1
+        else:
+            self.overall_stats["successful"] += 1
+        self._update_translation_item(item)
 
     def start_new_batch(self):
         """Thread-safe start new batch."""
         self.signals.start_new_batch_signal.emit()
+    def _start_new_batch(self):
+        # Internal start new batch handler (runs in main thread).
+        pass
 
     def add_term_base_entry(self, term: str, lang: str, translation: str = "", comment: str = ""):
         """Thread-safe add term base entry."""
@@ -460,97 +461,10 @@ class GraphicalUIManager:
         full_translation = translation
         if comment:
             full_translation += f" (Comment: {comment})"
-        self.add_translation_entry(term, lang, status, full_translation, [], "term_base")
-
-
-    def _find_existing_entry(self, source: str, lang: str) -> tuple[Optional[dict], Optional[int]]:
-        """Find existing entry in current batch or history."""
-        # Check current batch
-        for i, entry in enumerate(self._current_batch):
-            if entry["source"] == source and entry["lang"] == lang:
-                return entry, i
-        
-        # Check history
-        for i, entry in enumerate(self.translation_history):
-            if entry["source"] == source and entry["lang"] == lang:
-                return entry, i
-                
-        return None, None
-
-    def _add_translation_entry(self, source: str, lang: str, status: str, translation: str, entry_type: str, issues: list):
-        """Internal add translation handler (runs in main thread)."""
-        entry, idx = self._find_existing_entry(source, lang)
-        
-        if entry:
-            # If entry was in history, move it to current batch
-            if idx is not None and entry in self.translation_history:
-                self.translation_history.remove(entry)
-                self._current_batch.append(entry)
-            
-            # Store current state as previous attempt if there was a translation
-            if entry.get("translation"):
-                if "last_issues" not in entry:
-                    entry["last_issues"] = []
-                entry["last_issues"].append({
-                    "translation": entry["translation"],
-                    "issues": entry.get("issues", [])
-                })
-            # Update existing entry
-            entry.update({
-                "status": status,
-                "translation": translation,
-                "issues": issues
-            })
-        else:
-            # Create new entry
-            entry = {
-                "time": datetime.now().strftime("%H:%M:%S"),
-                "type": entry_type,
-                "source": source,
-                "lang": lang,
-                "status": status,
-                "translation": translation,
-                "issues": issues,
-                "last_issues": []
-            }
-            self._current_batch.append(entry)
-            
-        self._update_display()
-
-    def _update_translation_entry(self, item, lang: str, status: str):
-        """Internal update translation entry handler (runs in main thread)."""
-
-        item['lang'] = lang
-        item['status'] = status
-
-        for idx, entry in enumerate(self.translation_entries):
-            if entry["source"] == item["source"] and entry["lang"] == item["lang"]:
-                self.translation_entries[idx] = item
-                self._update_display()
-                return
-
-        self.translation_entries.append(item)
-        self._update_display()
-
-    def _complete_translation(self, source: str, lang: str, translation: str, error: str = ""):
-        """Internal complete translation handler (runs in main thread)."""
-        for entry in self._current_batch:
-            if entry["source"] == source and entry["lang"] == lang:
-                entry["translation"] = translation
-                entry["status"] = "✓" if not error else "❌"
-                if error:
-                    entry["issues"] = [error]
-                self._update_display()
-                return
-
-    def _start_new_batch(self):
-        """Internal start new batch handler (runs in main thread)."""
-        self.translation_history.extend(self._current_batch)
-        self._current_batch = []
-        self._update_display()
-
+        self.on_translation_started(term, lang, status, full_translation, [], "term_base")
     def _add_term_base_entry(self, term: str, lang: str, translation: str, comment: str):
         """Internal add term base entry handler (runs in main thread)."""
+        return
         status = "📖"
         full_translation = translation
         if comment:
@@ -565,13 +479,20 @@ class GraphicalUIManager:
             "translation": full_translation,
             "issues": []
         }
-        self._current_batch.append(entry)
-        self._update_display()
+        #self._current_batch.append(entry)
+        #self._update_display()
+
+    """
+    def _find_existing_entry(self, source: str, lang: str) -> tuple[Optional[dict], Optional[int]]:
+        # Check current batch
+        for i, entry in enumerate(self._current_batch):
+            if entry["source"] == source and entry["lang"] == lang:
+                return entry, i
         
-    def add_term_base_entry(self, term: str, lang: str, translation: str = "", comment: str = ""):
-        """Add a term base entry."""
-        status = "📖"
-        full_translation = translation
-        if comment:
-            full_translation += f" (Comment: {comment})"
-        self.add_translation_entry(term, lang, status, full_translation, entry_type="term_base")
+        # Check history
+        for i, entry in enumerate(self.translation_history):
+            if entry["source"] == source and entry["lang"] == lang:
+                return entry, i
+                
+        return None, None
+    """

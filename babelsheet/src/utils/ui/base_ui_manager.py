@@ -179,7 +179,7 @@ class UIManager:
             self.live.stop()
             self.live = None
             
-    def add_translation_entry(self, source: str, lang: str, status: str = "⏳", 
+    def on_translation_started(self, source: str, lang: str, status: str = "⏳", 
                             translation: str = "", error: str = "", entry_type: str = "translation"):
         """Add a new translation entry."""
         time = datetime.now().strftime("%H:%M:%S")
@@ -225,7 +225,7 @@ class UIManager:
         self._current_batch.append(entry)
         self._update_display()
         
-    def complete_translation(self, item: Dict[str, Any]):
+    def on_translation_ended(self, item: Dict[str, Any]):
         """Mark a translation as complete."""
         item['status'] = "❌" if item['error'] else "✓"
         
@@ -238,7 +238,7 @@ class UIManager:
             
         self.update_translation_item(item)
 
-        
+
     def start_new_batch(self, llm_handler):
         """Move current batch to history and start a new one."""
         self.translation_history.extend(self._current_batch)
