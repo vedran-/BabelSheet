@@ -131,7 +131,8 @@ class LLMHandler:
                 data["messages"] = formatted_messages
                 
             # For OpenAI models
-            elif "openai" in self.model.lower():
+            #elif "openai" in self.model.lower():
+            else:
                 if messages[0]["role"] == "system":
                     messages[0]["content"] = messages[0]["content"] + "\n\n" + json_requirement
                 else:

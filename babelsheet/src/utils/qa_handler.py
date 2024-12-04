@@ -2,6 +2,7 @@ import re
 from typing import Dict, List, Tuple, Optional, Pattern, Any
 from .llm_handler import LLMHandler
 from .ui_manager import UIManager
+from ..translation.translation_dictionary import TranslationDictionary
 import logging
 import json
 
@@ -10,6 +11,7 @@ class QAHandler:
                  max_length: Optional[int] = None, 
                  llm_handler: Optional[LLMHandler] = None, 
                  ui: Optional[UIManager] = None,
+                 translation_dictionary: Optional[TranslationDictionary] = None,
                  non_translatable_patterns: Optional[List[Dict[str, str]]] = None):
         """Initialize QA Handler.
         
@@ -17,11 +19,13 @@ class QAHandler:
             max_length: Maximum allowed length for translations (if None, no limit)
             llm_handler: LLMHandler instance for AI-powered validation
             non_translatable_patterns: List of pattern dicts with 'start' and 'end' keys
+            translation_dictionary: TranslationDictionary instance
         """
         self.max_length = max_length
         self.llm_handler = llm_handler
         self.logger = logging.getLogger(__name__)
         self.ui = ui
+        self.translation_dictionary = translation_dictionary
         
         # Validate and compile patterns if provided
         self.non_translatable_patterns = non_translatable_patterns
@@ -270,7 +274,7 @@ class QAHandler:
         )
         
         # Add term base at the beginning if available
-        if term_base:
+        if True and term_base:
             combined_prompt += (
                 "Term Base Guidelines:\n"
                 "- Verify that all term base translations are used consistently\n"
@@ -285,23 +289,11 @@ class QAHandler:
                     f"- Non-translatable terms will match the following patterns: {str(self.non_translatable_patterns)}\n"
                 )
 
-            combined_prompt += "\nTerm Base Entries:\n"
-            for term, data in term_base.items():
-                combined_prompt += f"- {term}: {data['translation']} (Context: {data['context']})\n"
-            combined_prompt += "\n"
-
-        for i, item in enumerate(items, 1):
-            combined_prompt += (
-                f"Translation #{i}:\n"
-                f"Source text: {item['source_text']}\n"
-                f"Translated text: {item['translated_text']}\n"
-                f"Context: {item['context']}\n"
-            )
-
-            if item['previous_issues'] and len(item['previous_issues']) > 0:
-                combined_prompt += f"Previous issues: {item['previous_issues']}\n"
-
-            combined_prompt += "\n"
+            if False:
+                combined_prompt += "\nTerm Base Entries:\n"
+                for term, data in term_base.items():
+                    combined_prompt += f"- {term}: {data['translation']} (Context: {data['context']})\n"
+                combined_prompt += "\n"
 
         combined_prompt += (
             f"For each translation, evaluate:\n"
@@ -309,7 +301,7 @@ class QAHandler:
             f"2. Regional and linguistic appropriateness (suitable for target language region, while maintaining the original tone even if provocative)\n"
             f"3. Natural flow and readability\n"
             f"4. Consistency in tone and style\n"
-            f"5. Correct usage of term base translations\n"
+            f"5. Correct usage of term base translations. Note: Non-translatable terms must be preserved exactly as in source, so they ignore term base rules.\n"
             f"6. Preservation of special terms and markup\n"
             f"7. Resolution of previous issues (if any)\n\n"
             f"Pay special attention to:\n"
@@ -320,6 +312,23 @@ class QAHandler:
             f"- Cultural nuances specific to the target language region"
             f"- Keeping with syntax of the source text (e.g. punctuation, capitalization)"
         )
+
+        for i, item in enumerate(items, 1):
+            combined_prompt += (
+                f"\n## Translation #{i} ##\n"
+                f"Source text: {item['source_text']}\n"
+                f"Translated text: {item['translated_text']}\n"
+                f"Context: {item['context']}\n"
+            )
+
+            relevant_translations = self.translation_dictionary.get_relevant_translations(item['source_text'], target_lang)
+            if len(relevant_translations) > 0:
+                combined_prompt += f"RELEVANT_TERM_BASE:\n    - {'\n   - '.join(f'{rt['term']}: {rt['translation']}' for rt in relevant_translations)}\n"
+
+            if item['previous_issues'] and len(item['previous_issues']) > 0:
+                combined_prompt += f"Previous issues: {item['previous_issues']}\n"
+
+            combined_prompt += "\n"
 
         validation_schema = {
             "type": "object",

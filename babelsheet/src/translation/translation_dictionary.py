@@ -74,7 +74,10 @@ class TranslationDictionary:
     def get_relevant_translations(self, source_text: str, target_lang: str) -> List[str]:
         """Get all relevant translations for a specific text in target language."""
         haystack = source_text.strip().lower()
-        dict = self.dictionary[target_lang]
+        dict = self.dictionary.get(target_lang, {})
+        if len(dict) == 0:
+            return []
+
         relevant_translations = []
         for source_term, translation_term in dict.items():
             if source_term.lower() in haystack:

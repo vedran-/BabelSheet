@@ -278,6 +278,10 @@ class GraphicalUIManager:
         
         translation = f"{entry.get('translation', '')}"
 
+        override = entry.get("override")
+        if override:
+            translation += f"\n ●●● OVERRIDE validation, because: {override}"
+
         last_issues = entry.get("last_issues")
         if last_issues and len(last_issues) > 0:
             translation += f"\n ----- Previous {len(last_issues)} failed attempts -----"

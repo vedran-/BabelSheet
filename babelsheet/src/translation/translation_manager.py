@@ -31,7 +31,7 @@ class TranslationManager:
         self.translation_dictionary = translation_dictionary
         
         # Initialize Translation Prompts
-        self.translation_prompts = TranslationPrompts(config)
+        self.translation_prompts = TranslationPrompts(config, qa_handler, translation_dictionary)
         
         # Get batch configuration
         llm_config = config.get('llm', {})
@@ -539,8 +539,7 @@ class TranslationManager:
             source_texts=source_texts,
             contexts=contexts,
             issues=issues,
-            qa_handler=self.qa_handler,
-            term_base=term_base
+            target_lang=target_lang
         )
         prompt = self.translation_prompts.create_translation_prompt(
             combined_texts=combined_texts,
@@ -629,7 +628,10 @@ class TranslationManager:
         # First validate syntax for all translations
         for i, source_text in enumerate(source_texts):
             translated_text = translations[i]["translation"]
-            override = translations[i].get("override")
+            override = translations[i].get("override", '')
+            if override == '':
+                translations[i].pop("override", None)
+
             context = contexts[i]
             task = self.qa_handler.validate_translation_syntax(
                 source_text=source_text,

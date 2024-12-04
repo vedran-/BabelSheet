@@ -24,6 +24,10 @@
      • If translation LLM determines rejection was not justified
      • Skip additional validation for such cases
 
+4. Order validation texts by text length, from shorter to longer
+   ⚡ Goal: That will basically use whole document as a term base, as shorter texts are translated first.
+       E.g. if we first translate 'Slow Joe' and then 'Slow Joe is a good friend', it will translate 'Slow Joe' in a consistent way.
+
 
 ## ✅ Completed Features
 

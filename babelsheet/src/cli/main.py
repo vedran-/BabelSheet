@@ -229,14 +229,17 @@ async def translate(ctx, target_langs, verbose):
         ctx.sheets_handler = SheetsHandler(ctx, creds)
         ctx.sheets_handler.initialize()
 
+        # Initialize Translation Dictionary
+        ctx.translation_dictionary = TranslationDictionary(ctx)
+
         # Initialize QA Handler
         ctx.qa_handler = QAHandler(
             max_length=ctx.config.get('qa', {}).get('max_length', 1000),
             llm_handler=ctx.llm_handler, ui=ctx.ui,
+            translation_dictionary=ctx.translation_dictionary,
             non_translatable_patterns=ctx.config.get('qa', {}).get('non_translatable_patterns', [])
         )
 
-        ctx.translation_dictionary = TranslationDictionary(ctx)
         ctx.translation_dictionary.initialize_from_sheets()
 
         # Initialize TermBaseHandler

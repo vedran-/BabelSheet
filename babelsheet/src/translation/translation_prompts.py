@@ -1,18 +1,24 @@
 from typing import Dict, List, Any, Optional
-import json
+from ..utils.qa_handler import QAHandler
+from .translation_dictionary import TranslationDictionary
+
+USE_OVERRIDE = True
 
 class TranslationPrompts:
-    def __init__(self, config: Dict):
+    def __init__(self, config: Dict, qa_handler: QAHandler, translation_dictionary: TranslationDictionary):
         """Initialize Translation Prompts."""
         self.config = config
+        self.qa_handler = qa_handler
+        self.translation_dictionary = translation_dictionary
+        self.use_override = config.get('qa', {}).get('use_override', USE_OVERRIDE)
 
     def escape(self, text: str) -> str:
         """Escape special characters in text for XML-like format."""
         return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     def prepare_texts_with_contexts(self, source_texts: List[str], contexts: List[Dict[str, Any]], 
-                                  issues: List[Dict[str, Any]], qa_handler,
-                                  term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
+                                  issues: List[Dict[str, Any]],
+                                  target_lang: str) -> str:
         """Prepare texts with their contexts for translation.
         
         Args:
@@ -29,30 +35,32 @@ class TranslationPrompts:
         
         for i, (text, context_dict, issue_list) in enumerate(zip(source_texts, contexts, issues)):
             # Extract non-translatable terms for this text
-            text_terms = qa_handler._extract_non_translatable_terms(text)
-            
+            text_terms = self.qa_handler.extract_non_translatable_terms(text)
+
             # Prepare context
             exc = []
             for key, value in context_dict.items():
                 if value:  # Only add non-empty context
                     exc.append(f"{self.escape(key)}: {self.escape(str(value))}")
             
+            relevant_translations = self.translation_dictionary.get_relevant_translations(text, target_lang)
+            if len(relevant_translations) > 0:
+                exc.append(f"  RELEVANT_TERM_BASE:\n    - {'\n   - '.join(f'{rt['term']}: {rt['translation']}' for rt in relevant_translations)}")
+            
             # Add non-translatable terms to context if any exist
             if text_terms and len(text_terms) > 0:
                 terms_str = ", ".join(f"`{term}`" for term in text_terms)
-                exc.append(f"NON-TRANSLATABLE TERMS, which must be preserved exactly as is: {terms_str}")
+                exc.append(f"  NON_TRANSLATABLE_TERMS, which must be preserved exactly as is: {terms_str}")
             
             # Add issues
             for issue in issue_list:
-                exc.append(f"FAILED_TRANSLATION: `{self.escape(issue['translation'])}` failed because: {self.escape(issue['issues'])}")
+                exc.append(f"  FAILED_TRANSLATION: `{self.escape(issue['translation'])}` failed because: {self.escape(issue['issues'])}")
             
             expanded_context = "\n".join(exc)
-            if len(exc) > 0:
-                expanded_context += "\n"
-
-            texts_with_contexts.append(f"<text id='{i+1}'>{text}</text>\n<context id='{i+1}'>{expanded_context}</context>")
+            texts_with_contexts.append(f"<text id='{i+1}'>{text}</text>\n<context id='{i+1}'>\n{expanded_context}</context>")
         
         return "\n\n".join(texts_with_contexts)
+
 
     def create_translation_prompt(self, combined_texts: str, target_lang: str, source_lang: str, 
                                 term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
@@ -72,16 +80,26 @@ specialized for casual mobile games. Your task is to provide accurate and cultur
 
 """
         # Add term base at the beginning if available
-        if term_base and len(term_base) > 0:
+        # OBSOLETE - now we use whole document as a term base, as shorter texts are translated first.
+        if False and term_base and len(term_base) > 0:
             prompt += "Term Base References (use these for translation consistency):\n"
             for term, data in term_base.items():
                 prompt += f"- {term}: {data['translation']} (Context: {data['context']})\n"
             prompt += "\n"
 
-        prompt += f"""Texts to Translate:
-{combined_texts}
+        override_instructions = ''
+        if USE_OVERRIDE:
+            override_instructions = """5. Override validation issues - IMPORTANT:
+   - By default, the 'override' field should be empty
+   - For each text that has FAILED_TRANSLATION in its context
+   - If you believe the previous translation was actually correct despite validation issues:
+     * Provide that previously failed but now corrected translation again
+     * In the 'override' field, explain in detail why the validation issues were false positives. This will tell the app to use this translation despite previous issues.
+   - Only fill in override when you are 100% certain the previous translation was completely correct
+"""
 
-Translation Rules:
+        prompt += f"""
+# Translation Rules:
 - Use provided term base for consistency
 - Preserve all non-translatable terms exactly as specified in each text's context
 - Don't translate special terms which match the following patterns: {str(self.config['qa']['non_translatable_patterns'])}
@@ -92,7 +110,7 @@ Translation Rules:
 - Localize all output text, except special terms between markup characters
 - It is ok to be polarizing, don't be neutral - but avoid offensive language
 
-Critical Instructions for Previously Failed Translations:
+# Critical Instructions for Previously Failed Translations:
 When you see FAILED_TRANSLATION tags in the context:
 1. These represent previous translation attempts that were rejected
 2. Study each failed translation and its error message carefully
@@ -102,13 +120,9 @@ When you see FAILED_TRANSLATION tags in the context:
    - Maintains the original meaning
    - Avoids similar mistakes
    - Improves upon the previous attempts
-5. If you are 100% certain that a previous translation was actually correct despite validation issues:
-   - Provide the same translation again
-   - Include an "override" field in your response
-   - In the override, explain in detail why the validation issues are false positives
-   - Only do this in extreme cases where you are absolutely certain
+{override_instructions}
 
-Term Base Management:
+# Term Base Management:
 Identify any important unique terms in the source text that should be added to the term base:
 - Only suggest game-specific names requiring consistent translation
 - Don't suggest common language words/phrases
@@ -118,6 +132,12 @@ For each suggested term, provide:
   * The term in the source language
   * A suggested translation
   * A brief comment explaining its usage/context in the source language ({source_lang})
+
+  
+# Texts to Translate
+
+{combined_texts}
+  
 
 Return translations and term suggestions in a structured JSON format."""
         return prompt
@@ -144,12 +164,14 @@ Return translations and term suggestions in a structured JSON format."""
                                 "type": "string",
                                 "description": "The translated text"
                             },
-                            "override": {
-                                "type": "string",
-                                "description": "Optional reason for overriding validation issues. Only provide this when 100% certain that the translation is correct despite validation issues."
-                            }
+                            **({} if not USE_OVERRIDE else {
+                                "override": {
+                                    "type": "string", 
+                                    "description": "Optional reason for overriding validation issues. Only provide this when 100% certain that the translation is correct despite validation issues."
+                                }
+                            })
                         },
-                        "required": ["text_id", "translation"]
+                        "required": ["text_id", "translation"] + (["override"] if USE_OVERRIDE else [])
                     }
                 },
                 "term_suggestions": {
@@ -176,4 +198,4 @@ Return translations and term suggestions in a structured JSON format."""
                 }
             },
             "required": ["translations"]
-        } 
+        }
