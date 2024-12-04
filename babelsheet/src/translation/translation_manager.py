@@ -488,6 +488,8 @@ class TranslationManager:
                                 col=missing_item['col_idx'],
                                 value=translation
                             )
+                            self.translation_dictionary.add_translation(missing_item['source_text'], lang, translation)
+
                             missing_item['status'] = StatusIcons.SUCCESS
                             missing_items.remove(missing_item)
                             self.ui.on_translation_ended(missing_item)

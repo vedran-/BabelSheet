@@ -38,7 +38,12 @@ class TranslationDictionary:
 
     def add_translation(self, source_text: str, target_lang: str, translation: str) -> None:
         """Add a new translation to the dictionary."""
-        if source_text is None or translation is None or str(translation).strip() == "" or str(source_text).strip() == "":
+        if source_text is None or translation is None:
+            return
+        
+        source_text = str(source_text).strip()
+        translation = str(translation).strip()
+        if source_text == "" or translation == "":
             return
 
         if target_lang not in self.dictionary:
@@ -64,11 +69,11 @@ class TranslationDictionary:
             return None
         if source_text not in self.dictionary[target_lang]:
             return None
-        return self.dictionary[target_lang][source_text]
+        return self.dictionary[target_lang][source_text.strip()]
 
     def get_relevant_translations(self, source_text: str, target_lang: str) -> List[str]:
         """Get all relevant translations for a specific text in target language."""
-        haystack = source_text.lower()
+        haystack = source_text.strip().lower()
         dict = self.dictionary[target_lang]
         relevant_translations = []
         for source_term, translation_term in dict.items():
