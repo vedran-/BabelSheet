@@ -117,7 +117,7 @@ class LLMHandler:
 
         if json_schema:
             # Add JSON schema requirement to system message or create new one
-            json_requirement = f"You must respond ONLY with a valid JSON matching this schema: {json.dumps(json_schema)}"
+            json_requirement = f"You must respond ONLY with a valid JSON matching this schema: {json.dumps(json_schema)}. Make sure to escape all quotes, newlines, and other special characters."
             if messages and messages[0]["role"] == "system":
                 messages[0]["content"] = messages[0]["content"] + "\n\n" + json_requirement
             else:

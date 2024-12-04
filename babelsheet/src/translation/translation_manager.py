@@ -95,7 +95,7 @@ class TranslationManager:
                 f.write(f"Sheet: {failed_item['sheet_name']}\n")
                 f.write(f"Language: {failed_item['lang']}\n")
                 f.write(f"Source Text: {failed_item['source_text']}\n")
-                f.write(f"Last Translation Attempt: {failed_item['last_translation']}\n")
+                f.write(f"Last Translation Attempt: {failed_item['translation']}\n")
                 f.write("Issues:\n")
                 for issue in failed_item['issues']:
                     f.write(f"  - {issue}\n")
@@ -179,7 +179,7 @@ class TranslationManager:
                 failed_items_text += f"Sheet: {item['sheet_name']}\n"
                 failed_items_text += f"Language: {item['lang']}\n"
                 failed_items_text += f"Source text: {item['source_text']}\n"
-                failed_items_text += f"Last attempt: {item['last_translation']}\n"
+                failed_items_text += f"Last attempt: {item['translation']}\n"
                 failed_items_text += "Issues:\n"
                 for issue in item['issues']:
                     failed_items_text += f"  - {issue}\n"
@@ -387,7 +387,8 @@ class TranslationManager:
                 # Perform translation in background
                 contexts = [item['context'] for item in batch]
                 
-                try:
+                #try:
+                if True:
                     # Update UI status for each item
                     for item in batch:
                         item['status'] = StatusIcons.TRANSLATING
@@ -400,7 +401,8 @@ class TranslationManager:
                         target_lang=lang,
                         contexts=contexts,
                         issues=[item.get('last_issues', []) for item in batch],
-                        use_term_base=use_term_base
+                        use_term_base=use_term_base,
+                        items=batch
                     )
                     
                     # Process results
@@ -412,19 +414,19 @@ class TranslationManager:
                         
                         missing_item['translation'] = translation
 
-                        if issues:
+                        if issues and len(issues) > 0:
                             # Store current attempt before updating issues
                             if 'last_issues' not in missing_item:
                                 missing_item['last_issues'] = []
-                            if missing_item.get('last_translation'):
-                                missing_item['last_issues'].append({
-                                    'translation': missing_item['last_translation'],
-                                    'issues': missing_item.get('current_issues', [])
-                                })
+
+                            
+                            missing_item['last_issues'].insert(0, {
+                                'translation': translation,
+                                'issues': issues
+                            })
                             
                             # Update current state
-                            missing_item['last_translation'] = translation
-                            missing_item['current_issues'] = issues
+                            missing_item['translation'] = translation
                             
                             if len(missing_item['last_issues']) >= self.max_retries - 1:
                                 self.ui.critical(f"Max retries reached for {lang} item {missing_item['source_text']}. Giving up.")
@@ -437,7 +439,7 @@ class TranslationManager:
                                     'sheet_name': sheet_name,
                                     'lang': lang,
                                     'source_text': missing_item['source_text'],
-                                    'last_translation': translation,
+                                    'translation': translation,
                                     'issues': [str(issue['issues']) for issue in missing_item['last_issues']]
                                 }
                                 self.stats['failed_items'].append(failed_item)
@@ -446,12 +448,6 @@ class TranslationManager:
                                 self.ui.on_translation_ended(item)
                             else:
                                 # Keep the item in the list for retry, but mark it as in progress
-                                # Convert issues to list if it's a string
-                                if isinstance(issues, str):
-                                    issues = [issues]
-                                elif isinstance(issues, list):
-                                    issues = [str(i) for i in issues]
-                                
                                 self.ui.on_translation_started(missing_item)
                         else:
                             # Only handle as successful if there are no issues
@@ -462,24 +458,23 @@ class TranslationManager:
                                 value=translation
                             )
                             missing_items.remove(missing_item)
-                            self.ui.on_translation_ended(missing_item['source_text'], lang, translation)
+                            self.ui.on_translation_ended(missing_item)
                             
                             # Track successful translation and log it
                             self.stats['successful_translations'] += 1
                             self._log_successful_translation(sheet_name, lang, missing_item['source_text'], translation)
+
+                """
                 except Exception as e:
                     error_msg = f"Error processing batch: {str(e)}"
                     self.ui.error(error_msg)
                     self.logger.error(error_msg)
                     # Update UI for failed items
                     for item in batch:
-                        self.ui.complete_translation(
-                            item['source_text'],
-                            lang,
-                            "❌ Failed",
-                            error_msg
-                        )
+                        item['error'] = error_msg
+                        self.ui.on_translation_ended(item)
                     continue
+                """
                 
                 if len(missing_items) == 0:
                     missing_translations.pop(lang)
@@ -789,7 +784,7 @@ Return translations and term suggestions in a structured JSON format."""
 
     async def _perform_translation(self, source_texts: List[str], source_lang: str, 
                             target_lang: str, contexts: List[str], issues: List[Dict[str, Any]],
-                            use_term_base: bool
+                            use_term_base: bool, items: List[Dict[str, Any]]
                             ) -> List[Tuple[str, List[str]]]:
         """Internal method to perform batch translation and update cells.
         
@@ -823,6 +818,11 @@ Return translations and term suggestions in a structured JSON format."""
         # Handle term suggestions
         await self._handle_term_suggestions(term_suggestions, target_lang)
         
+        for item, translation in zip(items, translations):
+            item["status"] = StatusIcons.VALIDATING + " Validating"
+            item["translation"] = translation['translation']
+            self.ui.update_translation_item(item)
+
         # Validate translations
         return await self._validate_translations(
             source_texts=source_texts,

@@ -16,12 +16,15 @@ import queue
 logger = logging.getLogger(__name__)
 
 class StatusIcons:
-    TRANSLATING = "⌛"
-    PREPARING = "⏳"
-    SUCCESS = "✓"
-    FAILED = "❌"
-    INFO = "📖"
-    WARNING = "⚠"
+    WAITING = " "  # Stopwatch - shows waiting state clearly
+    PREPARING = "⌛"  # Hammer and wrench - shows setup/preparation
+    TRANSLATING = "📖"  # Arrows in circle - indicates ongoing process
+    VALIDATING = "🔍"  # Magnifying glass - indicates validation
+    SUCCESS = "✅"  # Direct hit - shows perfect completion
+    FAILED = "❌"  # Broken heart - more friendly than prohibition signs
+    INFO = "💡"  # Light bulb - represents information/knowledge
+    WARNING = "⚠️"  # Police car light - grabs attention for warnings
+
 
 class UISignals(QObject):
     """Signals for thread-safe UI updates."""
@@ -41,7 +44,7 @@ class UISignals(QObject):
     check_thread_signal = pyqtSignal()  # New signal for checking thread status
 
 class GraphicalUIManager:
-    def __init__(self, max_history: int = 100, status_lines: int = 8, llm_handler: LLMHandler = None):
+    def __init__(self, max_history: int = 100, status_lines: int = 10, llm_handler: LLMHandler = None):
         """Initialize Graphical UI Manager."""
         self.llm_handler = llm_handler
         self.app = QApplication([])
@@ -103,6 +106,10 @@ class GraphicalUIManager:
         self.thread_check_timer = QTimer()
         self.thread_check_timer.timeout.connect(lambda: self.signals.check_thread_signal.emit())
         self.thread_check_timer.start(50)  # Check every 50ms
+
+        self.thread_update_stats_timer = QTimer()
+        self.thread_update_stats_timer.timeout.connect(lambda: self._ui_update_statistics())
+        self.thread_update_stats_timer.start(1000)  # Update every second
         
         # Thread management
         self.should_stop = False
@@ -115,8 +122,10 @@ class GraphicalUIManager:
         self.stats_layout = QGridLayout(self.stats_widget)
         
         self.total_label = QLabel("Total Attempts: 0")
+        self.llm_stats_label = QLabel("LLM Stats: 0 tokens, $0.00")
         self.stats_layout.addWidget(QLabel("📊 Statistics"), 0, 0, 1, 1)
         self.stats_layout.addWidget(self.total_label, 0, 1)
+        self.stats_layout.addWidget(self.llm_stats_label, 0, 2)
         
         self.layout.addWidget(self.stats_widget)
 
@@ -160,37 +169,6 @@ class GraphicalUIManager:
                 return i
         return -1
 
-    def set_translation_list(self, missing_translations: Dict[str, List[Dict[str, Any]]]):
-        """Set the translation list."""
-
-        new_items = []
-        for lang, items in missing_translations.items():
-            for item in items:
-                item['lang'] = lang
-                item['time'] = datetime.now().strftime("%H:%M:%S")
-                item['status'] = StatusIcons.PREPARING
-                new_items.append(item)
-
-        self.signals.set_translation_list_signal.emit(new_items)
-
-    def _set_translation_list(self, new_items: List[Dict[str, Any]]):
-        """Set the translation list."""
-        self.translation_entries.extend(new_items)
-        self._ui_repaint_all()
-
-    def update_translation_item(self, item: Dict[str, Any]):
-        """Update a single translation item."""
-        self.signals.update_translation_item_signal.emit(item)
-
-    def _update_translation_item(self, item: Dict[str, Any]):
-        """Update a single translation item."""
-        idx = self._find_item_index(item)
-        if idx != -1:
-            self._ui_update_table_row(idx, item)
-            return
-        
-        self.critical(f"Failed to find translation item: {item}")
-
     def _create_table_item(self, text: str, multiline: bool = False) -> QTableWidgetItem:
         """Create a table item with proper formatting."""
         item = QTableWidgetItem(text)
@@ -208,57 +186,12 @@ class GraphicalUIManager:
             return QColor(0, 255, 0, 50)  # Green with alpha
         elif status.startswith(StatusIcons.FAILED):
             return QColor(255, 0, 0, 50)  # Red with alpha
-        elif status.startswith(StatusIcons.PREPARING) or status.startswith(StatusIcons.TRANSLATING):
+        elif status.startswith(StatusIcons.VALIDATING) \
+            or status.startswith(StatusIcons.TRANSLATING) \
+            or status.startswith(StatusIcons.PREPARING):
             return QColor(255, 255, 0, 50)  # Yellow with alpha
         else:
-            return QColor(128, 128, 128, 50)  # Gray with alpha
-
-    def ________format_translation_text(self, translation: str, entry: dict) -> str:
-        """Format translation text with issues and previous attempts."""
-        text_parts = []
-        
-        # Add current translation or status
-        if translation.startswith("⏳") or translation.startswith("⌛"):
-            text_parts.append(translation)
-            # If we have a previous translation during retry, show it
-            if entry.get("last_translation"):
-                text_parts.append("\nPrevious translation:")
-                text_parts.append(entry["last_translation"])
-        else:
-            text_parts.append(translation)
-            
-        # Add current issues if any
-        if entry.get("issues"):
-            text_parts.append("\n" + "=" * 40)
-            text_parts.append("Current Issues:")
-            issues = entry["issues"]
-            if isinstance(issues, list):
-                for issue in issues:
-                    if isinstance(issue, list):
-                        text_parts.extend(f"• {i}" for i in issue)
-                    else:
-                        # Handle string issues
-                        text_parts.append(f"• {str(issue)}")
-            else:
-                # If issues is a string, treat it as a single issue
-                text_parts.append(f"• {str(issues)}")
-        
-        # Add previous attempts if any
-        if entry.get("last_issues"):
-            text_parts.append("\n" + "=" * 40)
-            text_parts.append("Previous Attempts:")
-            for attempt in entry["last_issues"]:
-                text_parts.append(f"\n▶ Translation: {attempt['translation']}")
-                if attempt['issues']:
-                    text_parts.append("Issues:")
-                    if isinstance(attempt['issues'], list):
-                        for issue in attempt['issues']:
-                            text_parts.append(f"• {str(issue)}")
-                    else:
-                        text_parts.append(f"• {str(attempt['issues'])}")
-                text_parts.append("-" * 40)
-        
-        return "\n".join(text_parts)
+            return QColor(192, 192, 192, 50)  # Gray with alpha
 
     def _ui_update_statistics(self):
         """Update the statistics display."""
@@ -268,7 +201,14 @@ class GraphicalUIManager:
             fail_rate = (self.overall_stats['failed'] / total) * 100
         else:
             success_rate = fail_rate = 0.0
-        self.total_label.setText(f"Total Attempts: {total}, {StatusIcons.INFO} {self.overall_stats['successful']} ({success_rate:.1f}%) {StatusIcons.FAILED} {self.overall_stats['failed']} ({fail_rate:.1f}%)")
+        self.total_label.setText(f"Total Attempts: {total}/{len(self.translation_entries)}, {StatusIcons.SUCCESS} {self.overall_stats['successful']} ({success_rate:.1f}%), {StatusIcons.FAILED} {self.overall_stats['failed']} ({fail_rate:.1f}%)")
+
+        llm_stats = self.llm_handler.get_usage_stats()
+        prompt_tokens = llm_stats.get("prompt_tokens", 0)
+        completion_tokens = llm_stats.get("completion_tokens", 0)
+        total_tokens = llm_stats.get("total_tokens", 0)
+        total_cost = llm_stats.get("total_cost", 0)
+        self.llm_stats_label.setText(f"LLM tokens: {total_tokens} ({prompt_tokens} prompt, {completion_tokens} completion), cost: ${total_cost:.6f}")
 
     def _ui_update_console(self):
         """Update the status messages display."""
@@ -335,8 +275,6 @@ class GraphicalUIManager:
         self._ui_update_statistics()
         self._ui_update_translation_table()
         self._ui_update_console()
-
-
 
 
     def _check_thread_status(self):
@@ -424,6 +362,34 @@ class GraphicalUIManager:
         self._ui_update_console()
 
 
+    def set_translation_list(self, missing_translations: Dict[str, List[Dict[str, Any]]]):
+        """Set the translation list."""
+
+        new_items = []
+        for lang, items in missing_translations.items():
+            for item in items:
+                item['lang'] = lang
+                item['time'] = datetime.now().strftime("%H:%M:%S")
+                item['status'] = StatusIcons.WAITING
+                new_items.append(item)
+
+        self.signals.set_translation_list_signal.emit(new_items)
+    def _set_translation_list(self, new_items: List[Dict[str, Any]]):
+        """Set the translation list."""
+        self.translation_entries.extend(new_items)
+        self._ui_repaint_all()
+
+    def update_translation_item(self, item: Dict[str, Any]):
+        """Update a single translation item."""
+        self.signals.update_translation_item_signal.emit(item)
+    def _update_translation_item(self, item: Dict[str, Any]):
+        """Update a single translation item."""
+        idx = self._find_item_index(item)
+        if idx != -1:
+            self._ui_update_table_row(idx, item)
+            return
+        
+        self.critical(f"Failed to find translation item: {item}")
 
 
     def on_translation_started(self, item):
@@ -431,7 +397,7 @@ class GraphicalUIManager:
         self.signals.on_translation_started_signal.emit(item)
     def _on_translation_started(self, item):
         """Internal add translation handler (runs in main thread)."""
-        item["status"] = StatusIcons.TRANSLATING
+        item["status"] = StatusIcons.TRANSLATING + " Translating"
         self._update_translation_item(item)
 
     def on_translation_ended(self, item):
@@ -457,11 +423,13 @@ class GraphicalUIManager:
 
     def add_term_base_entry(self, term: str, lang: str, translation: str = "", comment: str = ""):
         """Thread-safe add term base entry."""
+        return
         status = StatusIcons.INFO
         full_translation = translation
         if comment:
             full_translation += f" (Comment: {comment})"
         self.on_translation_started(term, lang, status, full_translation, [], "term_base")
+        
     def _add_term_base_entry(self, term: str, lang: str, translation: str, comment: str):
         """Internal add term base entry handler (runs in main thread)."""
         return
@@ -481,18 +449,3 @@ class GraphicalUIManager:
         }
         #self._current_batch.append(entry)
         #self._update_display()
-
-    """
-    def _find_existing_entry(self, source: str, lang: str) -> tuple[Optional[dict], Optional[int]]:
-        # Check current batch
-        for i, entry in enumerate(self._current_batch):
-            if entry["source"] == source and entry["lang"] == lang:
-                return entry, i
-        
-        # Check history
-        for i, entry in enumerate(self.translation_history):
-            if entry["source"] == source and entry["lang"] == lang:
-                return entry, i
-                
-        return None, None
-    """
