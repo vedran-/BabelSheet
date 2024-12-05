@@ -22,13 +22,13 @@ class TranslationDictionary:
             
             source_lang_idxs = self.sheets_handler.get_column_indexes(df, [self.ctx.source_lang])   
             if len(source_lang_idxs) == 0:
-                self.ui.warning(f"No source language column found in sheet '{sheet_name}'")
+                self.ui.warning(f"No source language column found in sheet `<b>{sheet_name}</b>`, skipping...")
                 continue
             source_idx = source_lang_idxs[0]
 
             target_idxs = self.sheets_handler.get_column_indexes(df, self.ctx.target_langs)
             if len(target_idxs) == 0:
-                self.ui.warning(f"No target columns found in sheet '{sheet_name}'")
+                self.ui.warning(f"No target columns found in sheet `<b>{sheet_name}</b>`, skipping...")
                 continue
 
             # Get target languages which exist in this sheet from the first row
@@ -67,7 +67,7 @@ class TranslationDictionary:
         
         if source_text in self.dictionary[target_lang]:
             if translation != self.dictionary[target_lang][source_text]:
-                self.ui.critical(f"Translation for {source_text} in {target_lang} already exists but with different translation: '{self.dictionary[target_lang][source_text]}' -> '{translation}'")
+                self.ui.critical(f"Translation for `<b>{source_text}</b>` in <b>{target_lang}</b> already exists but with different translation: `{self.dictionary[target_lang][source_text]}` -> `{translation}`")
 
         self.dictionary[target_lang][source_text] = translation
 

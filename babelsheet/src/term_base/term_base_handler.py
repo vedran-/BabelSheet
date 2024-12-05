@@ -18,7 +18,7 @@ class TermBaseHandler:
         
     def load_term_base(self) -> None:
         """Load the term base from the Google Sheet."""
-        self.ui.info(f"Loading term base from sheet: {self.sheet_name}")
+        self.logger.info(f"Loading term base from sheet: {self.sheet_name}")
         self.sheet_data = self.sheets_handler.get_sheet_data(self.sheet_name)
 
         # Find the index of the term column
@@ -32,7 +32,7 @@ class TermBaseHandler:
             raise ValueError(f"Required column '{self.term_column_name}' not found in term base sheet")
 
         # Find the indexes of the context columns
-        self.ui.info(f"Successfully loaded Term Base from sheet '{self.sheet_name}' ({len(self.sheet_data.iloc[:, self.term_column_index])} terms)")
+        self.ui.info(f"Successfully loaded <b><font color='green'>Term Base</font></b> from sheet `<b>{self.sheet_name}</b>` ({len(self.sheet_data.iloc[:, self.term_column_index])} terms)")
 
     def get_terms_for_language(self, lang: str) -> Dict[str, Dict[str, Any]]:
         """Get all terms for a specific language."""

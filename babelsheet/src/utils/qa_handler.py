@@ -56,7 +56,7 @@ class QAHandler:
         """
 
         if override:
-            self.ui.info(f"Validation override used for text '{source_text}'. Reason: {override}")
+            self.ui.info(f"Validation override used for text <b>'{source_text}'</b>. Reason: {override}")
             return []
 
         issues = []
@@ -268,14 +268,14 @@ class QAHandler:
         Returns:
             List of lists containing validation issues for each translation
         """
+
         combined_prompt = (
             f"You are a professional translation validator for {target_lang} language. "
             f"Your task is to meticulously evaluate each translation for accuracy, consistency, and adherence to provided guidelines.\n\n"
         )
         
         # Add term base at the beginning if available
-        if True and term_base:
-            """
+        if False and term_base:
             combined_prompt += (
                 "# Term Base Guidelines:\n"
                 "- Verify that all term base translations are used consistently\n"
@@ -289,7 +289,6 @@ class QAHandler:
                     "- Exception to this rule are non-translatable terms, which must be preserved exactly as is\n"  
                     f"- Non-translatable terms will match the following patterns: {str(self.non_translatable_patterns)}\n"
                 )
-            """
 
             if False:
                 combined_prompt += "\nTerm Base Entries:\n"

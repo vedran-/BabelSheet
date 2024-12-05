@@ -275,7 +275,7 @@ class TranslationManager:
             if self.term_base_handler and sheet_name == self.term_base_handler.sheet_name:
                 continue
                 
-            self.ui.debug(f"Analyzing sheet {i}/{total_sheets}: {sheet_name}")
+            logger.debug(f"Analyzing sheet {i}/{total_sheets}: {sheet_name}")
             
             # Get the sheet data
             df = self.sheets_handler.get_sheet_data(sheet_name)
@@ -287,31 +287,29 @@ class TranslationManager:
             # Report findings for this sheet
             if sheet_missing:
                 sheet_total = sum(len(items) for items in sheet_missing.values())
-                self.ui.debug(f"Found {sheet_total} missing translations in {sheet_name}:")
-                for lang, items in sheet_missing.items():
-                    self.ui.debug(f"  - {lang}: {len(items)} items")
+                self.ui.info(f"  [{i}/{total_sheets}] Found <b>{sheet_total}</b> missing translations in sheet `<b>{sheet_name}</b>`: {', '.join(f'<b>{lang}</b> ({len(items)} items)' for lang, items in sheet_missing.items())}")
             
             # Merge with all missing translations
             for lang, items in sheet_missing.items():
                 if lang not in all_missing_translations:
                     all_missing_translations[lang] = []
                 all_missing_translations[lang].extend(items)
-        
+
         # Log final summary
         if all_missing_translations:
             total_missing = sum(len(items) for items in all_missing_translations.values())
-            self.ui.debug("\nCollection complete. Summary of all missing translations:")
+            self.ui.info("\nCollection complete. Summary of all missing translations:")
             for lang, items in all_missing_translations.items():
                 # Order items by source_text length, from shortest to longest
                 # That will basically use whole document as a term base, as shorter texts are translated first.
                 # E.g. if we first translate 'Slow Joe' and then 'Slow Joe is a good friend',
                 # it will translate 'Slow Joe' in a consistent way.
-                items.sort(key=lambda x: len(x['source_text']))
+                items.sort(key=lambda x: (len(x['source_text']), x['source_text'].lower()))
 
-                self.ui.debug(f"  - {lang}: {len(items)} items")
-            self.ui.debug(f"Total missing translations: {total_missing}")
+                self.ui.info(f"  - <b>{lang}</b>: {len(items)} items")
+            self.ui.info(f"<b>Total missing translations: <font color='red'>{total_missing}</font></b>")
         else:
-            self.ui.debug("\nNo missing translations found in any sheet.")
+            self.ui.info("\nNo missing translations found in any sheet.")
         
         return all_missing_translations
 
@@ -389,11 +387,13 @@ class TranslationManager:
         skipped_items = []
         
         total_items = sum(len(items) for items in missing_translations.values())
-        processed_items = 0
         source_lang = self.config['languages']['source']
         
         self.ui.debug(f"Starting batch translation for {len(missing_translations)} languages ({total_items} items total)")
         self.ui.set_translation_list(missing_translations)
+        
+        # Sleep for a short time to give UI time to update
+        await asyncio.sleep(len(missing_translations) * 0.001)
 
         last_lang = None
         async def check_language_change(lang: str) -> None:
@@ -425,15 +425,15 @@ class TranslationManager:
                 await check_language_change(lang)
                 
                 # Add pending translations to UI with progress indicator
-                self.ui.stop_table_updates()
+                self.ui.begin_table_update()
                 for item in batch:
                     item['status'] = StatusIcons.TRANSLATING + " Translating..."
                     self.ui.on_translation_started(item)
-                self.ui.start_table_updates()
+                self.ui.end_table_update()
 
                 # Update UI with batch progress
-                self.ui.info(f"Processing batch of {len(batch)} items ({processed_items + 1}-{processed_items + len(batch)} of {total_items})")
-                
+                self.ui.info(f"<b>Processing batch of {len(batch)} items for <font color='#afffaf'>{lang}</font></b>: <b>{', '.join(f"`<font color='#7fff7f'>{item['source_text']}</font>`" for item in batch)}</b>")
+
                 # Perform translation in background
                 contexts = [item['context'] for item in batch]
                 
@@ -457,7 +457,7 @@ class TranslationManager:
                         self.ui.error(error_msg)
                         self.logger.error(error_msg)
 
-                        self.ui.stop_table_updates()
+                        self.ui.begin_table_update()
                         for item in batch:
                             item['error'] = error_msg
                             item['status'] = StatusIcons.FAILED + " Failed"
@@ -465,14 +465,13 @@ class TranslationManager:
                             all_issues.append({'translation': '', 'issues': [error_msg]})
                             item['last_issues'] = all_issues
                             self.ui.on_translation_ended(item)
-                        self.ui.start_table_updates()
+                        self.ui.end_table_update()
 
                         continue
                     
                     # Process results
-                    self.ui.stop_table_updates()
+                    self.ui.begin_table_update()
                     for idx, (missing_item, translation_item) in enumerate(zip(batch, batch_translations)):
-                        processed_items += 1
                         sheet_name = missing_item['sheet_name']
                         translation = translation_item['translation']
                         issues = translation_item['issues']
@@ -535,7 +534,7 @@ class TranslationManager:
                             self.stats['successful_translations'] += 1
                             self._log_successful_translation(sheet_name, lang, missing_item['source_text'], translation)
 
-                    self.ui.start_table_updates()
+                    self.ui.end_table_update()
                 """
                 except Exception as e:
                     error_msg = f"Error processing batch: {str(e)}"
@@ -563,7 +562,7 @@ class TranslationManager:
             error_msg = f"Error during translation processing: {str(e)}"
             self.ui.error(error_msg)
             self.logger.error(error_msg)
-            self.ui.start_table_updates()
+            self.ui.end_table_update()
             raise
 
     async def _get_llm_translations(self, source_texts: List[str], source_lang: str,
@@ -571,7 +570,7 @@ class TranslationManager:
                                   term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
         """Get translations from LLM."""
         # Update UI to show we're preparing the prompt
-        self.ui.info(f"Preparing translation prompt for {len(source_texts)} texts...")
+        self.logger.debug(f"Preparing translation prompt for {len(source_texts)} texts...")
         
         # Prepare texts and create prompt
         combined_texts = self.translation_prompts.prepare_texts_with_contexts(
@@ -588,7 +587,7 @@ class TranslationManager:
         )
         
         # Update UI to show we're waiting for LLM
-        self.ui.info("Waiting for LLM response...")
+        self.logger.debug("Waiting for LLM response...")
         
         # Get translation schema and generate completion
         translation_schema = self.translation_prompts.get_translation_schema()
@@ -603,11 +602,10 @@ class TranslationManager:
             )
             
             # Update UI to show we're processing the response
-            self.ui.info("Processing LLM response...")
+            self.logger.debug("Processing LLM response...")
             
             # Process response
             try:
-
                 result = self.llm_handler.extract_structured_response(response)
                 translations = result.get("translations", [])
                 if len(translations) == 0:  # Fallback for LLMs that don't return translations in the expected format
@@ -623,6 +621,10 @@ class TranslationManager:
                     self.logger.critical(f"Translations: {translations}")
                     raise Exception(error_msg)
             
+                self.ui.info(f"  - Translations: <b>{', '.join(f"`<font color='#ffff7f'>{t['translation']}</font>`" for t in translations)}</b>")
+                if result.get("term_suggestions", []):
+                    self.ui.info(f"  - Term base suggestions: <b>{', '.join(f"`<font color='#7fffd4'>{t['source_term']}</font>`" for t in result.get("term_suggestions", []))}</b>")
+
                 return result
             
             except json.JSONDecodeError as e:
@@ -729,6 +731,13 @@ class TranslationManager:
                 if len(llm_issues) > 0:
                     results[result_idx]["issues"].extend(llm_issues)
         
+        all_issues = []
+        for result in results:
+            if len(result["issues"]) > 0:
+                all_issues.append(f"    - <font color='#ff7f7f'>{result['translation']}</font>: {', '.join(f"`{issue}`" for issue in result['issues'])}")
+        if len(all_issues) > 0:
+            self.ui.info(f"  - <b>Validation issues:</b><br>{'<br>'.join(all_issues)}")
+
         return results
 
     async def _perform_translation(self, source_texts: List[str], source_lang: str, 
@@ -772,12 +781,12 @@ class TranslationManager:
         if self.config.get('term_base', {}).get('add_terms_to_term_base', False):
             await self._handle_term_suggestions(term_suggestions, target_lang)
         
-        self.ui.stop_table_updates()
+        self.ui.begin_table_update()
         for item, translation in zip(items, translations):
             item["status"] = StatusIcons.VALIDATING + " Validating"
             item["translation"] = translation['translation']
             self.ui.update_translation_item(item)
-        self.ui.start_table_updates()
+        self.ui.end_table_update()
 
         # Validate translations
         return await self._validate_translations(

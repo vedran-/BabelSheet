@@ -46,7 +46,7 @@ class SheetsHandler:
     def load_spreadsheet(self, spreadsheet_id: str):
         """Load entire spreadsheet into memory"""
         self.current_spreadsheet_id = spreadsheet_id
-        self.ctx.ui.info(f"Loading entire spreadsheet {spreadsheet_id}...")
+        self.ctx.ui.info(f"Loading entire spreadsheet <b>{spreadsheet_id}</b>...")
         
         try:
             # Get all sheet names
@@ -57,7 +57,6 @@ class SheetsHandler:
             sheets = spreadsheet.get('sheets', [])
             for sheet in sheets:
                 sheet_name = sheet['properties']['title']
-                logger.debug(f"Loading sheet: {sheet_name}")
 
                 if sheet_name in self._sheets:
                     logger.error(f"Sheet {sheet_name} already loaded, skipping")
@@ -74,6 +73,8 @@ class SheetsHandler:
 
                 df.attrs['context_column_indexes'] = self.get_column_indexes(df, self.ctx.config['context_columns']['patterns'])
                 df.attrs['sheet_name'] = sheet_name
+
+                self.ctx.ui.info(f"Loaded sheet <b>{sheet_name}</b> ({len(df.index)} rows, {len(df.columns)} columns)")
 
                 self._sheets[sheet_name] = df
                 

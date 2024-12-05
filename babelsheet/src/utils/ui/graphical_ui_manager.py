@@ -36,8 +36,8 @@ class UISignals(QObject):
     set_translation_list_signal = pyqtSignal(list) # new_items
     update_translation_item_signal = pyqtSignal(object) # item
 
-    start_table_updates_signal = pyqtSignal()
-    stop_table_updates_signal = pyqtSignal()
+    begin_table_update_signal = pyqtSignal()
+    end_table_update_signal = pyqtSignal()
 
     on_translation_started_signal = pyqtSignal(object)  # item
     on_translation_ended_signal = pyqtSignal(object)
@@ -70,8 +70,8 @@ class GraphicalUIManager:
         self.signals.set_translation_list_signal.connect(self._set_translation_list, Qt.ConnectionType.QueuedConnection)
         self.signals.update_translation_item_signal.connect(self._update_translation_item, Qt.ConnectionType.QueuedConnection)
 
-        self.signals.start_table_updates_signal.connect(self._start_table_updates, Qt.ConnectionType.QueuedConnection)
-        self.signals.stop_table_updates_signal.connect(self._stop_table_updates, Qt.ConnectionType.QueuedConnection)
+        self.signals.begin_table_update_signal.connect(self._begin_table_update, Qt.ConnectionType.QueuedConnection)
+        self.signals.end_table_update_signal.connect(self._end_table_update, Qt.ConnectionType.QueuedConnection)
 
         self.signals.on_translation_started_signal.connect(self._on_translation_started, Qt.ConnectionType.QueuedConnection)
         self.signals.on_translation_ended_signal.connect(self._on_translation_ended, Qt.ConnectionType.QueuedConnection)
@@ -200,7 +200,13 @@ class GraphicalUIManager:
         """Setup the status messages panel."""
         self.status_text = QTextEdit()
         self.status_text.setReadOnly(True)
-        self.status_text.setMaximumHeight(150)
+        self.status_text.setMaximumHeight(250)
+        self.status_text.setAcceptRichText(True)
+        
+        # Set default font and styling
+        #font = self.status_text.font()
+        #font.setPointSize(10)
+        #self.status_text.setFont(font)
         self.layout.addWidget(self.status_text)
 
     def _find_item_index(self, item) -> int:
@@ -208,12 +214,7 @@ class GraphicalUIManager:
         if idx != -1:
             return idx
         
-        self._error(f"Item {item} has no index! Will search for it in the table.")
-        """Find the index of an item in the translation entries."""
-        for i, entry in enumerate(self.translation_entries):
-            if entry['source_text'] == item['source_text'] and entry['lang'] == item['lang']:
-                return i
-        return -1
+        raise Exception(f"Item {item} has no index!")
 
     def _create_table_item(self, text: str, multiline: bool = False) -> QTableWidgetItem:
         """Create a table item with proper formatting."""
@@ -261,21 +262,32 @@ class GraphicalUIManager:
 
         self.languages_label.setText(f"Languages: {self.ctx.source_lang} (source), {', '.join(self.ctx.target_langs)} (target)")
 
-
     def _ui_update_console(self):
         """Update the status messages display."""
         # Update status panel
+        # Get current scroll position and maximum before updating text
+        scrollbar = self.status_text.verticalScrollBar()
+        old_value = scrollbar.value()
+        was_at_bottom = old_value == scrollbar.maximum()
+        
+        # Update the text
         status_text = ""
-        for msg in reversed(self.status_messages):
-            status_text += f"{msg}\n"
-        self.status_text.setText(status_text)
+        for msg in self.status_messages:
+            status_text += f"{msg}<br>\n"
+        self.status_text.setHtml(status_text)
+        
+        # Only auto-scroll if we were already at the bottom
+        if was_at_bottom:
+            scrollbar.setValue(scrollbar.maximum())
+        else:
+            scrollbar.setValue(old_value)
 
     def _ui_repaint_translation_table(self):
         """Update the translation table."""
         # Update translation table only if there are changes
         all_entries = self.translation_entries
         
-        self._stop_table_updates()
+        self._begin_table_update()
         # Temporarily disable auto-resizing
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         
@@ -289,7 +301,7 @@ class GraphicalUIManager:
         
         # Re-enable and perform one-time resize
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        self._start_table_updates()
+        self._end_table_update()
 
     def _ui_update_table_row(self, row_idx: int, entry: dict):
         """Update a single table row."""
@@ -342,23 +354,6 @@ class GraphicalUIManager:
         self._ui_update_statistics()
         self._ui_repaint_translation_table()
         self._ui_update_console()
-
-    def start_table_updates(self):
-        """Start table updates."""
-        self.signals.start_table_updates_signal.emit()
-    def _start_table_updates(self):
-        """Start table updates."""
-        self.table.setUpdatesEnabled(False)
-        self.table.blockSignals(True)
-
-    def stop_table_updates(self):
-        """Stop table updates."""
-        self.signals.stop_table_updates_signal.emit()
-    def _stop_table_updates(self):
-        """Stop table updates."""
-        self.table.setUpdatesEnabled(True)
-        self.table.blockSignals(False)
-        self.table.viewport().update()
 
 
     def _check_thread_status(self):
@@ -461,6 +456,29 @@ class GraphicalUIManager:
             self.info(f"Total tokens used: {usage_stats['total_tokens']} ({usage_stats['prompt_tokens']} prompt + {usage_stats['completion_tokens']} completion)")
             self.info(f"Total cost: ${usage_stats['total_cost']:.4f}")
 
+    def begin_table_update(self):
+        """Start table updates."""
+        self.signals.begin_table_update_signal.emit()
+    def _begin_table_update(self):
+        """Start table updates."""
+        self.table.setSortingEnabled(False)
+        self.table.setUpdatesEnabled(False)
+        self.table.blockSignals(True)
+        self.table.model().layoutAboutToBeChanged.emit()
+        self.table.model().beginResetModel()
+
+    def end_table_update(self):
+        """Stop table updates."""
+        self.signals.end_table_update_signal.emit()
+    def _end_table_update(self):
+        """Stop table updates."""
+        self.table.setUpdatesEnabled(True)
+        self.table.blockSignals(False)
+        self.table.model().endResetModel()
+        #self.table.model().layoutChanged.emit()
+        self.table.viewport().update()
+        #self.table.setSortingEnabled(True)
+
 
     def set_translation_list(self, missing_translations: Dict[str, List[Dict[str, Any]]]):
         """Set the translation list."""
@@ -489,6 +507,7 @@ class GraphicalUIManager:
         """Update a single translation item."""
         idx = self._find_item_index(item)
         if idx != -1:
+            item['idx'] = idx
             self.translation_entries[idx] = item
             self._ui_update_table_row(idx, item)
             return
