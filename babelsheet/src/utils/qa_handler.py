@@ -275,19 +275,21 @@ class QAHandler:
         
         # Add term base at the beginning if available
         if True and term_base:
+            """
             combined_prompt += (
                 "# Term Base Guidelines:\n"
                 "- Verify that all term base translations are used consistently\n"
-                "- Check that game-specific terms match their approved translations\n"
+                "- Check that game-specific terms and names match their approved translations\n"
                 "- Ensure special terms are preserved exactly as specified\n"
                 "- Flag any deviations from term base translations\n"
             )
-
+            
             if self.non_translatable_patterns and len(self.non_translatable_patterns) > 0:
                 combined_prompt += (
                     "- Exception to this rule are non-translatable terms, which must be preserved exactly as is\n"  
                     f"- Non-translatable terms will match the following patterns: {str(self.non_translatable_patterns)}\n"
                 )
+            """
 
             if False:
                 combined_prompt += "\nTerm Base Entries:\n"
@@ -301,15 +303,20 @@ class QAHandler:
             f"2. Regional and linguistic appropriateness (suitable for target language region, while maintaining the original tone even if provocative)\n"
             f"3. Natural flow and readability\n"
             f"4. Consistency in tone and style\n"
-            f"5. Correct usage of term base translations. Note: Non-translatable terms must be preserved exactly as in source, so they ignore term base rules.\n"
+            f"5. Correct usage of term base translations, particularly for names and items. For other terms and phrases, try to use your best judgement if the translation of the source text is appropriate, provided wider context.\n"
+            f"Note: Non-translatable terms must be preserved exactly as in source, so they ignore term base rules.\n"
             f"6. Preservation of special terms and markup\n"
             f"7. Resolution of previous issues (if any)\n\n"
             f"# Pay special attention to:\n"
             f"- Consistent use of approved terminology\n"
-            f"- Proper handling of game-specific terms\n"
+            f"- Proper handling of game-specific terms and names\n"
             f"- Whether previous translation issues have been properly addressed\n"
             f"- Regional language conventions while preserving original intent and tone\n"
             f"- Cultural nuances specific to the target language region"
+            f"- It's ok to be polarizing, don't be neutral - but avoid offensive language\n"
+            f"- If translation spans multiple lines, the translation should keep the same line breaks as the source text, and also should have each row equal in length if possible\n"
+            f"- For newlines, we accept `\\n` and actual newline characters\n"
+            f"- Keep translations concise to fit UI elements\n"
             f"- Keeping with syntax of the source text (e.g. punctuation, capitalization)\n\n"
         )
 

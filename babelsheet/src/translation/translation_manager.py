@@ -469,7 +469,7 @@ class TranslationManager:
                         sheet_name = missing_item['sheet_name']
                         translation = translation_item['translation']
                         issues = translation_item['issues']
-                        override = translation_item.get("override", '')
+                        override = translation_item.get("override", '') if self.translation_prompts.use_override else ''
 
                         missing_item['translation'] = translation
                         missing_item['override'] = override

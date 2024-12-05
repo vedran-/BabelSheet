@@ -2,15 +2,13 @@ from typing import Dict, List, Any, Optional
 from ..utils.qa_handler import QAHandler
 from .translation_dictionary import TranslationDictionary
 
-USE_OVERRIDE = True
-
 class TranslationPrompts:
     def __init__(self, config: Dict, qa_handler: QAHandler, translation_dictionary: TranslationDictionary):
         """Initialize Translation Prompts."""
         self.config = config
         self.qa_handler = qa_handler
         self.translation_dictionary = translation_dictionary
-        self.use_override = config.get('qa', {}).get('use_override', USE_OVERRIDE)
+        self.use_override = config.get('qa', {}).get('use_override', False)
 
     def escape(self, text: str) -> str:
         """Escape special characters in text for XML-like format."""
@@ -87,7 +85,7 @@ specialized for casual mobile games. Your task is to provide accurate and cultur
             prompt += "\n"
 
         override_instructions = ''
-        if USE_OVERRIDE:
+        if self.use_override:
             override_instructions = f"""5. Override validation issues - IMPORTANT:
    - By default, the 'override' field should be empty
    - For each text that has FAILED_TRANSLATION in its context, if you believe the previous translation was actually correct despite validation issues:
@@ -98,15 +96,15 @@ specialized for casual mobile games. Your task is to provide accurate and cultur
 
         prompt += f"""
 # Translation Rules:
-- Use provided term base for consistency
-- Preserve all non-translatable terms exactly as specified in each text's context
-- Don't translate special terms which match the following patterns: {str(self.config['qa']['non_translatable_patterns'])}
+- Use provided term base for consistency. For names, try to use the translation from the term base. For other terms and phrases, try to use your best judgement what would be the most appropriate translation of the source text, provided wider context.
+- Preserve all non-translatable terms exactly as specified in each text's context. Those are special terms which match the following patterns: {str(self.config['qa']['non_translatable_patterns'])}
 - Keep appropriate format (uppercase/lowercase)
 - Replace newlines with \\n, and quotes with \\" or \\'
 - Keep translations lighthearted and fun, but precise
 - Keep translations concise to fit UI elements
 - Localize all output text, except special terms between markup characters
 - It is ok to be polarizing, don't be neutral - but avoid offensive language
+- If translation spans multiple lines, try to keep the same line breaks as the source text, and also try to make each row equal in length if possible
 
 # Critical Instructions for Previously Failed Translations:
 When you see FAILED_TRANSLATION tags in the context:
@@ -160,14 +158,14 @@ Return translations and term suggestions in a structured JSON format."""
                                 "type": "string",
                                 "description": "The translated text"
                             },
-                            **({} if not USE_OVERRIDE else {
+                            **({} if not self.use_override else {
                                 "override": {
                                     "type": "string", 
                                     "description": "Optional reason for overriding validation issues, or empty string. Only provide this when 100% certain that the translation is correct despite validation issues."
                                 }
                             })
                         },
-                        "required": ["text_id", "translation"] + (["override"] if USE_OVERRIDE else [])
+                        "required": ["text_id", "translation"] + (["override"] if self.use_override else [])
                     }
                 },
                 "term_suggestions": {

@@ -321,11 +321,11 @@ class GraphicalUIManager:
                 item = self._create_table_item(content, multiline=multiline)
                 self.table.setItem(row_idx, col, item)
             else:
-                item.setText(str(content))
+                item.setText(str(content))                
                 if multiline:
-                    item.setTextAlignment(Qt.AlignTop | Qt.AlignLeft)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
                 else:
-                    item.setTextAlignment(Qt.AlignCenter)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             item.setBackground(color)
         
         # Adjust row height if needed
