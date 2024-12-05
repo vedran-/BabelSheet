@@ -288,11 +288,7 @@ class GraphicalUIManager:
 
     def _ui_update_table_row(self, row_idx: int, entry: dict):
         """Update a single table row."""
-        time_item = self._create_table_item(entry["time"])
-        source_item = self._create_table_item(entry["source_text"], multiline=True)
-        lang_item = self._create_table_item(entry["lang"])
-        status_item = self._create_table_item(entry["status"])
-        
+        # Prepare the translation text
         translation = f"{entry.get('translation', '')}"
 
         override = entry.get("override", '')
@@ -307,18 +303,30 @@ class GraphicalUIManager:
                 if attempt['issues']:
                     translation += "\n    - " + "\n    -".join(attempt['issues'])
 
-        translation_item = self._create_table_item(translation, multiline=True)
-        
-        # Set colors based on status
+        # Define the content for each column
+        contents = [
+            (entry["time"], False),
+            (entry["source_text"], True),
+            (entry["lang"], False),
+            (entry["status"], False),
+            (translation, True)
+        ]
+
         color = self._get_status_color(entry["status"])
-        for item in [time_item, source_item, lang_item, status_item, translation_item]:
+
+        # Update each column
+        for col, (content, multiline) in enumerate(contents):
+            item = self.table.item(row_idx, col)
+            if item is None:
+                item = self._create_table_item(content, multiline=multiline)
+                self.table.setItem(row_idx, col, item)
+            else:
+                item.setText(str(content))
+                if multiline:
+                    item.setTextAlignment(Qt.AlignTop | Qt.AlignLeft)
+                else:
+                    item.setTextAlignment(Qt.AlignCenter)
             item.setBackground(color)
-            
-        self.table.setItem(row_idx, 0, time_item)
-        self.table.setItem(row_idx, 1, source_item)
-        self.table.setItem(row_idx, 2, lang_item)
-        self.table.setItem(row_idx, 3, status_item)
-        self.table.setItem(row_idx, 4, translation_item)
         
         # Adjust row height if needed
         self.table.resizeRowToContents(row_idx)
