@@ -27,7 +27,6 @@ litellm.log_raw_request_response=False
 litellm.success_callback = [] 
 
 def my_custom_logging_fn(model_call_dict):
-    #print(f"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXX XXXXXXXXXXX\nXXXXXXXXXXX XXXXXXXXXX XXXXXXXX\nXXXXXXXXXX\nXXXXXXXXXX\nmodel call details: {model_call_dict}")
     pass
 
 litellm.callbacks = []

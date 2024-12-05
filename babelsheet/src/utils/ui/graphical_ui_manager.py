@@ -36,6 +36,9 @@ class UISignals(QObject):
     set_translation_list_signal = pyqtSignal(list) # new_items
     update_translation_item_signal = pyqtSignal(object) # item
 
+    start_table_updates_signal = pyqtSignal()
+    stop_table_updates_signal = pyqtSignal()
+
     on_translation_started_signal = pyqtSignal(object)  # item
     on_translation_ended_signal = pyqtSignal(object)
 
@@ -66,6 +69,9 @@ class GraphicalUIManager:
         self.signals.critical_signal.connect(self._critical, Qt.ConnectionType.QueuedConnection)
         self.signals.set_translation_list_signal.connect(self._set_translation_list, Qt.ConnectionType.QueuedConnection)
         self.signals.update_translation_item_signal.connect(self._update_translation_item, Qt.ConnectionType.QueuedConnection)
+
+        self.signals.start_table_updates_signal.connect(self._start_table_updates, Qt.ConnectionType.QueuedConnection)
+        self.signals.stop_table_updates_signal.connect(self._stop_table_updates, Qt.ConnectionType.QueuedConnection)
 
         self.signals.on_translation_started_signal.connect(self._on_translation_started, Qt.ConnectionType.QueuedConnection)
         self.signals.on_translation_ended_signal.connect(self._on_translation_ended, Qt.ConnectionType.QueuedConnection)
@@ -264,6 +270,7 @@ class GraphicalUIManager:
         # Update translation table only if there are changes
         all_entries = self.translation_entries
         
+        self._stop_table_updates()
         # Temporarily disable auto-resizing
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         
@@ -277,6 +284,7 @@ class GraphicalUIManager:
         
         # Re-enable and perform one-time resize
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self._start_table_updates()
 
     def _ui_update_table_row(self, row_idx: int, entry: dict):
         """Update a single table row."""
@@ -321,6 +329,23 @@ class GraphicalUIManager:
         self._ui_update_statistics()
         self._ui_repaint_translation_table()
         self._ui_update_console()
+
+    def start_table_updates(self):
+        """Start table updates."""
+        self.signals.start_table_updates_signal.emit()
+    def _start_table_updates(self):
+        """Start table updates."""
+        self.table.setUpdatesEnabled(False)
+        self.table.blockSignals(True)
+
+    def stop_table_updates(self):
+        """Stop table updates."""
+        self.signals.stop_table_updates_signal.emit()
+    def _stop_table_updates(self):
+        """Stop table updates."""
+        self.table.setUpdatesEnabled(True)
+        self.table.blockSignals(False)
+        self.table.viewport().update()
 
 
     def _check_thread_status(self):

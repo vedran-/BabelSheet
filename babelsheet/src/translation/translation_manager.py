@@ -418,10 +418,12 @@ class TranslationManager:
                 await check_language_change(lang)
                 
                 # Add pending translations to UI with progress indicator
+                self.ui.stop_table_updates()
                 for item in batch:
                     item['status'] = StatusIcons.TRANSLATING + " Translating..."
                     self.ui.on_translation_started(item)
-                
+                self.ui.start_table_updates()
+
                 # Update UI with batch progress
                 self.ui.info(f"Processing batch of {len(batch)} items ({processed_items + 1}-{processed_items + len(batch)} of {total_items})")
                 
@@ -448,6 +450,7 @@ class TranslationManager:
                         self.ui.error(error_msg)
                         self.logger.error(error_msg)
 
+                        self.ui.stop_table_updates()
                         for item in batch:
                             item['error'] = error_msg
                             item['status'] = StatusIcons.FAILED + " Failed"
@@ -455,10 +458,12 @@ class TranslationManager:
                             all_issues.append({'translation': '', 'issues': [error_msg]})
                             item['last_issues'] = all_issues
                             self.ui.on_translation_ended(item)
+                        self.ui.start_table_updates()
 
                         continue
                     
                     # Process results
+                    self.ui.stop_table_updates()
                     for idx, (missing_item, translation_item) in enumerate(zip(batch, batch_translations)):
                         processed_items += 1
                         sheet_name = missing_item['sheet_name']
@@ -523,6 +528,7 @@ class TranslationManager:
                             self.stats['successful_translations'] += 1
                             self._log_successful_translation(sheet_name, lang, missing_item['source_text'], translation)
 
+                    self.ui.start_table_updates()
                 """
                 except Exception as e:
                     error_msg = f"Error processing batch: {str(e)}"
@@ -550,6 +556,7 @@ class TranslationManager:
             error_msg = f"Error during translation processing: {str(e)}"
             self.ui.error(error_msg)
             self.logger.error(error_msg)
+            self.ui.start_table_updates()
             raise
 
     async def _get_llm_translations(self, source_texts: List[str], source_lang: str,
@@ -758,10 +765,12 @@ class TranslationManager:
         if self.config.get('term_base', {}).get('add_terms_to_term_base', False):
             await self._handle_term_suggestions(term_suggestions, target_lang)
         
+        self.ui.stop_table_updates()
         for item, translation in zip(items, translations):
             item["status"] = StatusIcons.VALIDATING + " Validating"
             item["translation"] = translation['translation']
             self.ui.update_translation_item(item)
+        self.ui.start_table_updates()
 
         # Validate translations
         return await self._validate_translations(
