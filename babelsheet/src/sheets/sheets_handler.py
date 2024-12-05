@@ -46,7 +46,7 @@ class SheetsHandler:
     def load_spreadsheet(self, spreadsheet_id: str):
         """Load entire spreadsheet into memory"""
         self.current_spreadsheet_id = spreadsheet_id
-        logger.info(f"Loading entire spreadsheet {spreadsheet_id}")
+        self.ctx.ui.info(f"Loading entire spreadsheet {spreadsheet_id}...")
         
         try:
             # Get all sheet names

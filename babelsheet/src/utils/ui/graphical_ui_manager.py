@@ -204,6 +204,11 @@ class GraphicalUIManager:
         self.layout.addWidget(self.status_text)
 
     def _find_item_index(self, item) -> int:
+        idx = item.get('idx', -1)
+        if idx != -1:
+            return idx
+        
+        self._error(f"Item {item} has no index! Will search for it in the table.")
         """Find the index of an item in the translation entries."""
         for i, entry in enumerate(self.translation_entries):
             if entry['source_text'] == item['source_text'] and entry['lang'] == item['lang']:
@@ -460,12 +465,15 @@ class GraphicalUIManager:
     def set_translation_list(self, missing_translations: Dict[str, List[Dict[str, Any]]]):
         """Set the translation list."""
 
+        idx = len(self.translation_entries)
         new_items = []
         for lang, items in missing_translations.items():
             for item in items:
                 item['lang'] = lang
                 item['time'] = datetime.now().strftime("%H:%M:%S")
                 item['status'] = StatusIcons.WAITING
+                item['idx'] = idx
+                idx += 1
                 new_items.append(item)
 
         self.signals.set_translation_list_signal.emit(new_items)
