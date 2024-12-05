@@ -421,12 +421,12 @@ class QAHandler:
         except json.JSONDecodeError as e:
             self.logger.error(f"Failed to parse LLM response as JSON: {e}")
             self.logger.error(f"Problematic content: {content}")
-            return [[f"LLM validation failed: Could not parse JSON response. Did you use double quotes by mistake?"]] * len(items)
+            return [[f"LLM technical issue: Could not parse JSON response. Did you use double quotes by mistake?"]] * len(items)
         
         except Exception as e:
             self.logger.error(f"Unexpected error while parsing LLM response: {e}")
             self.logger.error(f"Problematic content: {content}")
-            return [[f"LLM validation failed: {str(e)}"]] * len(items)
+            return [[f"LLM technical issue: {str(e)}"]] * len(items)
 
     async def validate_with_llm(self, source_text: str, translated_text: str, context: str, issues: List[str], target_lang: str) -> List[str]:
         """Use LLM to validate translation quality."""

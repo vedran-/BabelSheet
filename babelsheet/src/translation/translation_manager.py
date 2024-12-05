@@ -348,6 +348,8 @@ class TranslationManager:
                 missing_translations.pop(lang)
                 continue
 
+
+            added_translations = []
             batch = []
             item_idx = 0
             while len(batch) < self.batch_size and item_idx < len(items):
@@ -367,7 +369,12 @@ class TranslationManager:
                     self.ui.on_translation_ended(item)
 
                 else:
-                    batch.append(item)
+                    # Only add each source text once per batch
+                    # So in time for the next batch, we'll already have all translations
+                    if added_translations.count(item['source_text']) == 0:
+                        added_translations.append(item['source_text'])
+                        batch.append(item)
+
                     item_idx += 1
 
             if len(batch) == 0:
