@@ -303,7 +303,7 @@ class QAHandler:
             f"2. Regional and linguistic appropriateness (suitable for target language region, while maintaining the original tone even if provocative)\n"
             f"3. Natural flow and readability\n"
             f"4. Consistency in tone and style\n"
-            f"5. Correct usage of term base translations, particularly for names and items. For other terms and phrases, try to use your best judgement if the translation of the source text is appropriate, provided wider context.\n"
+            f"5. Correct usage of RELEVANT_TRANSLATIONS as a term base, particularly for names and items. For other terms and phrases, try to use your best judgement if the translation of the source text is appropriate, provided wider context.\n"
             f"Note: Non-translatable terms must be preserved exactly as in source, so they ignore term base rules.\n"
             f"6. Preservation of special terms and markup\n"
             f"7. Resolution of previous issues (if any)\n\n"
@@ -332,10 +332,10 @@ class QAHandler:
 
             relevant_translations = self.translation_dictionary.get_relevant_translations(item['source_text'], target_lang)
             if len(relevant_translations) > 0:
-                combined_prompt += f"RELEVANT_TERM_BASE:\n    - {'\n   - '.join(f'{rt['term']}: {rt['translation']}' for rt in relevant_translations)}\n"
+                combined_prompt += f"RELEVANT_TRANSLATIONS:\n    - {'\n   - '.join(f'{rt['term']}: {rt['translation']}' for rt in relevant_translations)}\n"
 
             if item['previous_issues'] and len(item['previous_issues']) > 0:
-                combined_prompt += f"Previous issues history:\n    - {'\n   - '.join(f'`{issue['translation']}` failed because: {issue['issues']}' for issue in item['previous_issues'])}\n"
+                combined_prompt += f"Previously rejected translations:\n    - {'\n   - '.join(f'`{issue['translation']}` failed because: {issue['issues']}' for issue in item['previous_issues'])}\n"
 
             combined_prompt += "\n"
 

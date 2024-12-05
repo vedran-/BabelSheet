@@ -42,7 +42,7 @@ class TranslationPrompts:
             
             relevant_translations = self.translation_dictionary.get_relevant_translations(text, target_lang)
             if len(relevant_translations) > 0:
-                exc.append(f"  RELEVANT_TERM_BASE:\n    - {'\n   - '.join(f'{rt['term']}: {rt['translation']}' for rt in relevant_translations)}")
+                exc.append(f"  RELEVANT_TRANSLATIONS:\n    - {'\n   - '.join(f'{rt['term']}: {rt['translation']}' for rt in relevant_translations)}")
             
             # Add non-translatable terms to context if any exist
             if text_terms and len(text_terms) > 0:
@@ -96,7 +96,7 @@ specialized for casual mobile games. Your task is to provide accurate and cultur
 
         prompt += f"""
 # Translation Rules:
-- Use provided term base for consistency. For names, try to use the translation from the term base. For other terms and phrases, try to use your best judgement what would be the most appropriate translation of the source text, provided wider context.
+- Use provided RELEVANT_TRANSLATIONS as a term base for consistency. For names, try to use the translation from the term base. For other terms and phrases, try to use your best judgement what would be the most appropriate translation of the source text, provided wider context.
 - Preserve all non-translatable terms exactly as specified in each text's context. Those are special terms which match the following patterns: {str(self.config['qa']['non_translatable_patterns'])}
 - Keep appropriate format (uppercase/lowercase)
 - Replace newlines with \\n, and quotes with \\" or \\'
