@@ -75,7 +75,7 @@ class SheetsHandler:
                     self.ctx.config['context_columns']['patterns'], exact_match=False)
                 df.attrs['sheet_name'] = sheet_name
 
-                self.ctx.ui.info(f"Loaded sheet <b>{sheet_name}</b> ({len(df.index)} rows, {len(df.columns)} columns)")
+                self.ctx.ui.info(f"Loaded sheet <font color='yellow'>{sheet_name}</font> ({len(df.index)} rows, {len(df.columns)} columns)")
 
                 self._sheets[sheet_name] = df
                 

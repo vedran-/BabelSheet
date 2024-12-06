@@ -323,7 +323,7 @@ class GraphicalUIManager:
         # Define the content for each column
         contents = [
             (entry["time"], False),
-            (entry["source_text"], True).replace('\\n', '\n'),
+            (entry["source_text"].replace('\\n', '\n'), True),
             (entry["lang"], False),
             (entry["status"], False),
             (translation, True)

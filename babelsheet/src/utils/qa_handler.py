@@ -6,6 +6,7 @@ from ..translation.translation_dictionary import TranslationDictionary
 import logging
 import json
 import asyncio
+import spacy
 
 class QAHandler:
     def __init__(self, 
@@ -41,6 +42,15 @@ class QAHandler:
         else:
             self.patterns = None
             self.ui.info("No non-translatable patterns configured")
+
+        try:
+            self.nlp = spacy.load("xx_sent_ud_sm")
+        except OSError:
+            spacy_model_name = "xx_sent_ud_sm"
+            self.ui.info(f"Downloading required spacy language model <b><font color='yellow'>{spacy_model_name}</font></b>...")
+            spacy.cli.download(spacy_model_name)
+            self.nlp = spacy.load(spacy_model_name)
+            self.ui.info(f"Downloaded spacy language model <b><font color='yellow'>{spacy_model_name}</font></b>!")
         
     async def validate_translation_syntax(self, source_text: str, translated_text: str,
                                  context: str, term_base: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -105,48 +115,33 @@ class QAHandler:
         except Exception as e:
             self.logger.error(f"Translation validation failed: {str(e)}", exc_info=True)
             raise ValueError(f"Translation validation failed: {str(e)}")
-    
+
+    def extract_words(self, text: str) -> List[str]:
+        """Extract words from text using spaCy."""
+        doc = self.nlp(text.replace('\\n', '\n')
+                       .replace('\\t', '\t')
+                       .replace('\\"', '"')
+                       .replace("\\'", "'"))
+        return [token.text for token in doc if not token.is_space]
+
+    def get_word_capitalization(self, text: str) -> Tuple[int, int, int]:
+        """Returns counts of all caps, non-all caps, and short all caps words."""
+        words = self.extract_words(text)
+        all_caps_words_count = sum(1 for word in words if word.isupper())
+        non_all_caps_words_count = sum(1 for word in words if not word.isupper())
+        short_non_all_caps_words_count = sum(1 for word in words if not word.isupper() and len(word) <= 3)
+        return all_caps_words_count, non_all_caps_words_count, short_non_all_caps_words_count
+
     def _validate_format(self, source: str, translation: str) -> List[str]:
         """Check format consistency between source and translation."""
         issues = []
+        source_all_caps_words_count, source_non_all_caps_words_count, source_short_non_all_caps_words_count = self.get_word_capitalization(source)
+        trans_all_caps_words_count, trans_non_all_caps_words_count, trans_short_non_all_caps_words_count = self.get_word_capitalization(translation)
 
-        def get_caps_flags(text: str) -> tuple[bool, bool]:
-            """
-            Returns two flags for a text:
-            1. has_all_caps_word: True if text contains any word in ALL CAPS
-            2. is_all_words_caps: True if all words are in ALL CAPS
-            """
-            def clean_word(word: str) -> str:
-                """Extract only letter characters from a word."""
-                return ''.join(c for c in word if c.isalpha())
-            
-            # Normalize newlines first
-            text = text.replace('\\n', ' ')
-            
-            # Split by any whitespace
-            words = [w for w in text.split() if w]
-            
-            # Extract only letter characters and keep words that have at least one letter
-            valid_words = []
-            for word in words:
-                cleaned = clean_word(word)
-                if len(cleaned) > 2:  # Include if it has more than 2 characters
-                    valid_words.append(cleaned)
-            
-            if not valid_words:
-                return False, False
-                
-            # Check if any word is all caps
-            has_all_caps = any(w.upper() == w for w in valid_words)
-            
-            # Check if all words are caps
-            all_words_caps = all(w.upper() == w for w in valid_words)
-            
-            return has_all_caps, all_words_caps
-
-        # Get capitalization flags for both texts
-        source_has_caps, source_all_caps = get_caps_flags(source)
-        trans_has_caps, trans_all_caps = get_caps_flags(translation)
+        source_has_caps = source_all_caps_words_count > 0
+        trans_has_caps = trans_all_caps_words_count > 0
+        source_all_caps = source_all_caps_words_count > 0 and source_non_all_caps_words_count == 0
+        trans_all_caps = trans_all_caps_words_count > 0 and trans_non_all_caps_words_count == 0
 
         # Compare flags
         if source_has_caps != trans_has_caps:
@@ -155,7 +150,11 @@ class QAHandler:
                 f"ALL CAPS words, but translation {'has' if trans_has_caps else 'does not have'} them. "
                 f"Source: '{source}', Translation: '{translation}'"
             )
-        elif source_all_caps != trans_all_caps:
+        elif source_all_caps != trans_all_caps \
+            and (
+                (source_short_non_all_caps_words_count > 1 or source_all_caps_words_count <= 1) or
+                (trans_short_non_all_caps_words_count > 1 or trans_all_caps_words_count <= 1)
+            ):
             issues.append(
                 f"Capitalization mismatch: {'all' if source_all_caps else 'not all'} words in source are "
                 f"ALL CAPS, but {'all' if trans_all_caps else 'not all'} words in translation are. "
@@ -212,7 +211,17 @@ class QAHandler:
             for s, t in zip(source_braces, trans_braces):
                 if s != t:
                     issues.append(f"Curly brace content modified: {s} -> {t} between source ({source}) and translation ({translation})")
-                    
+        
+        # Check < and >
+        source_angle_brackets = re.findall(r'<.*?>', source)
+        trans_angle_brackets = re.findall(r'<.*?>', translation)
+        if len(source_angle_brackets) != len(trans_angle_brackets):
+            issues.append(f"Angle bracket markup count mismatch between source ({source}) and translation ({translation})")
+        else:
+            for s, t in zip(source_angle_brackets, trans_angle_brackets):
+                if s != t:
+                    issues.append(f"Angle bracket content modified: {s} -> {t} between source ({source}) and translation ({translation})")
+
         return issues
     
     def _validate_term_base(self, translation: str, term_base: Dict[str, Dict[str, Any]], target_lang: str) -> List[str]:
@@ -256,7 +265,7 @@ class QAHandler:
         #if not issues:
         #    self.logger.debug("No term base issues found")
         return issues
-    
+
     
     async def validate_with_llm_batch(self, items: List[Dict[str, str]], target_lang: str, term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> List[List[str]]:
         """Use LLM to validate multiple translations at once.
@@ -503,3 +512,4 @@ class QAHandler:
             # findall returns tuples if we have groups, so we need to get first element
             terms.extend(m[0] if isinstance(m, tuple) else m for m in matches)
         return terms
+    

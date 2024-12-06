@@ -17,6 +17,7 @@ setup(
         'litellm',
         'rich>=13.9.0',
         'PyQt6>=6.6.1',
+        'spacy>=3.0.0',
     ],
     entry_points={
         'console_scripts': [
