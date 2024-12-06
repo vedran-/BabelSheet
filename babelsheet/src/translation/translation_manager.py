@@ -608,9 +608,7 @@ class TranslationManager:
             try:
                 result = self.llm_handler.extract_structured_response(response)
                 translations = result.get("translations", [])
-                if len(translations) == 0:  # Fallback for LLMs that don't return translations in the expected format
-                    translations = result.get("properties", []).get("translations", [])
-                
+
                 # Critical check: number of translations must match number of source texts
                 if len(translations) != len(source_texts):
                     error_msg = f"Number of translations ({len(translations)}) does not match number of source texts ({len(source_texts)})"
@@ -620,7 +618,11 @@ class TranslationManager:
                     self.logger.critical(f"Source texts: {source_texts}")
                     self.logger.critical(f"Translations: {translations}")
                     raise Exception(error_msg)
-            
+
+                # Convert all newlines to \n
+                for translation in translations:
+                    translation['translation'] = translation['translation'].replace('\n', '\\n')
+
                 self.ui.info(f"  - Translations: <b>{', '.join(f"`<font color='#ffff7f'>{t['translation']}</font>`" for t in translations)}</b>")
                 if result.get("term_suggestions", []):
                     self.ui.info(f"  - Term base suggestions: <b>{', '.join(f"`<font color='#7fffd4'>{t['source_term']}</font>`" for t in result.get("term_suggestions", []))}</b>")

@@ -325,17 +325,17 @@ class QAHandler:
         for i, item in enumerate(items, 1):
             combined_prompt += (
                 f"\n## Translation #{i} ##\n"
-                f"Source text: {item['source_text']}\n"
-                f"Translated text to validate: {item['translated_text']}\n"
-                f"Context: {item['context']}\n"
+                f"Source text: {item['source_text'].replace('\n', '\\n')}\n"
+                f"Translated text to validate: {item['translated_text'].replace('\n', '\\n')}\n"
+                f"Context: {item['context'].replace('\n', '\\n')}\n"
             )
 
             relevant_translations = self.translation_dictionary.get_relevant_translations(item['source_text'], target_lang)
             if len(relevant_translations) > 0:
-                combined_prompt += f"RELEVANT_TRANSLATIONS:\n    - {'\n   - '.join(f'{rt['term']}: {rt['translation']}' for rt in relevant_translations)}\n"
+                combined_prompt += f"RELEVANT_TRANSLATIONS:\n    - {'\n   - '.join(f'{rt['term'].replace('\n', '\\n')}: {rt['translation'].replace('\n', '\\n')}' for rt in relevant_translations)}\n"
 
             if item['previous_issues'] and len(item['previous_issues']) > 0:
-                combined_prompt += f"Previously rejected translations:\n    - {'\n   - '.join(f'`{issue['translation']}` failed because: {issue['issues']}' for issue in item['previous_issues'])}\n"
+                combined_prompt += f"Previously rejected translations:\n    - {'\n   - '.join(f'`{issue['translation'].replace('\n', '\\n')}` failed because: {issue['issues']}' for issue in item['previous_issues'])}\n"
 
             combined_prompt += "\n"
 

@@ -42,7 +42,7 @@ class TranslationPrompts:
             
             relevant_translations = self.translation_dictionary.get_relevant_translations(text, target_lang)
             if len(relevant_translations) > 0:
-                exc.append(f"  RELEVANT_TRANSLATIONS:\n    - {'\n   - '.join(f'{rt['term']}: {rt['translation']}' for rt in relevant_translations)}")
+                exc.append(f"  RELEVANT_TRANSLATIONS:\n    - {'\n   - '.join(f'{rt['term'].replace('\n', '\\n')}: {rt['translation'].replace('\n', '\\n')}' for rt in relevant_translations)}")
             
             # Add non-translatable terms to context if any exist
             if text_terms and len(text_terms) > 0:
@@ -51,7 +51,7 @@ class TranslationPrompts:
             
             # Add issues
             for issue in issue_list:
-                exc.append(f"  FAILED_TRANSLATION: `{self.escape(issue['translation'])}` failed because: {self.escape(issue['issues'])}")
+                exc.append(f"  FAILED_TRANSLATION: `{self.escape(issue['translation'].replace('\n', '\\n'))}` failed because: {self.escape(issue['issues'])}")
             
             expanded_context = "\n".join(exc)
             texts_with_contexts.append(f"<text id='{i+1}'>{text}</text>\n<context id='{i+1}'>\n{expanded_context}\n</context>")

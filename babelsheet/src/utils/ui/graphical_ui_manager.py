@@ -306,7 +306,7 @@ class GraphicalUIManager:
     def _ui_update_table_row(self, row_idx: int, entry: dict):
         """Update a single table row."""
         # Prepare the translation text
-        translation = f"{entry.get('translation', '')}"
+        translation = f"{entry.get('translation', '')}".replace('\\n', '\n')
 
         override = entry.get("override", '')
         if override and override != '':
@@ -316,14 +316,14 @@ class GraphicalUIManager:
         if last_issues and len(last_issues) > 0:
             translation += f"\n ----- Previous {len(last_issues)} failed attempts -----"
             for attempt in entry["last_issues"]:
-                translation += f"\n● >>> {attempt['translation']} <<<"
+                translation += f"\n● >>> {attempt['translation'].replace('\\n', '\n')} <<<"
                 if attempt['issues']:
                     translation += "\n    - " + "\n    -".join(attempt['issues'])
 
         # Define the content for each column
         contents = [
             (entry["time"], False),
-            (entry["source_text"], True),
+            (entry["source_text"], True).replace('\\n', '\n'),
             (entry["lang"], False),
             (entry["status"], False),
             (translation, True)
