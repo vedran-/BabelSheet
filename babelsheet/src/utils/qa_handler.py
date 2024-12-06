@@ -314,7 +314,7 @@ class QAHandler:
             f"- Cultural nuances specific to the target language region"
             f"- It's ok to be polarizing, don't be neutral - but avoid offensive language\n"
             f"- If translation spans multiple lines, the translation should keep the same line breaks as the source text, and also should have each row equal in length if possible\n"
-            f"- For newlines, we accept `\\n` and actual newline characters\n"
+            f"- For newlines, we accept both `\\n` and actual newline characters\n"
             f"- Keep translations concise to fit UI elements\n"
             f"- Keeping with syntax of the source text (e.g. punctuation, capitalization)\n\n"
         )

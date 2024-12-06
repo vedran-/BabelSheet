@@ -71,7 +71,8 @@ class SheetsHandler:
                 values = [[CellData(value) for value in row] for row in result.get('values', [])]
                 df = pd.DataFrame(values)
 
-                df.attrs['context_column_indexes'] = self.get_column_indexes(df, self.ctx.config['context_columns']['patterns'])
+                df.attrs['context_column_indexes'] = self.get_column_indexes(df, 
+                    self.ctx.config['context_columns']['patterns'], exact_match=False)
                 df.attrs['sheet_name'] = sheet_name
 
                 self.ctx.ui.info(f"Loaded sheet <b>{sheet_name}</b> ({len(df.index)} rows, {len(df.columns)} columns)")
@@ -194,7 +195,8 @@ class SheetsHandler:
         ]
 
     def get_column_indexes(self, sheet_data: pd.DataFrame, column_names: List[str], 
-                           create_if_missing: bool = False) -> List[int]:
+                           create_if_missing: bool = False,
+                           exact_match: bool = True) -> List[int]:
         """Get the indexes of the context columns"""
         ignore_case = self.ctx.config['context_columns']['ignore_case']
         sheet_column_names = self.get_column_names(sheet_data, lower_case=ignore_case)
@@ -203,9 +205,19 @@ class SheetsHandler:
         for col_name in column_names:
             try:
                 if ignore_case:
-                    col_idx = sheet_column_names.index(col_name.lower())
-                else:
+                    col_name = col_name.lower()
+
+                if exact_match:
                     col_idx = sheet_column_names.index(col_name)
+                else:
+                    col_idx = next((i for i, name in enumerate(sheet_column_names) if col_name in name), -1)
+
+                if col_idx == -1:
+                    if create_if_missing:
+                        col_idx = self.add_new_column(sheet_data, col_name)
+                    else:
+                        raise ValueError(f"Column {col_name} not found in sheet")
+                    
             except ValueError:
                 if create_if_missing:
                     col_idx = self.add_new_column(sheet_data, col_name)
