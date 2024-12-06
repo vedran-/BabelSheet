@@ -101,7 +101,7 @@ specialized for casual mobile games. Your task is to provide accurate and cultur
 - Keep appropriate format for each word (uppercase/lowercase) as in source text. E.g. if source text has a word in all caps, then that word, when translated, should also be in all caps
 - Replace newlines with \\n, and quotes with \\" or \\'
 - Keep translations lighthearted and fun, but precise
-- Keep translations concise to fit UI elements
+- Prefer concise and short translations so they fit UI elements, but not at the cost of clarity or accuracy
 - Localize all output text, except special terms between markup characters
 - It is ok to be polarizing, don't be neutral - but avoid offensive language
 - If translation spans multiple lines, try to keep the same line breaks as the source text, and also try to make each row equal in length if possible
