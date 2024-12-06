@@ -621,7 +621,7 @@ class TranslationManager:
 
                 # Convert all newlines to \n
                 for translation in translations:
-                    translation['translation'] = translation['translation'].replace('\n', '\\n')
+                    translation['translation'] = translation['translation'].replace('\\n', '\n')
 
                 self.ui.info(f"  - Translations: <b>{', '.join(f"`<font color='#ffff7f'>{t['translation']}</font>`" for t in translations)}</b>")
                 if result.get("term_suggestions", []):

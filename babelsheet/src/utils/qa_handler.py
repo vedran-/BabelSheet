@@ -336,7 +336,7 @@ class QAHandler:
                 f"\n## Translation #{i} ##\n"
                 f"Source text: {item['source_text'].replace('\n', '\\n')}\n"
                 f"Translated text to validate: {item['translated_text'].replace('\n', '\\n')}\n"
-                f"Context: {item['context'].replace('\n', '\\n')}\n"
+                f"Context: {item['context']}\n"
             )
 
             relevant_translations = self.translation_dictionary.get_relevant_translations(item['source_text'], target_lang)

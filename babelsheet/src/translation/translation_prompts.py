@@ -54,7 +54,7 @@ class TranslationPrompts:
                 exc.append(f"  FAILED_TRANSLATION: `{self.escape(issue['translation'].replace('\n', '\\n'))}` failed because: {self.escape(issue['issues'])}")
             
             expanded_context = "\n".join(exc)
-            texts_with_contexts.append(f"<text id='{i+1}'>{text}</text>\n<context id='{i+1}'>\n{expanded_context}\n</context>")
+            texts_with_contexts.append(f"<text id='{i+1}'>{text.replace('\n', '\\n')}</text>\n<context id='{i+1}'>\n{expanded_context}\n</context>")
         
         return f"# Texts to Translate ({len(source_texts)} texts)\n\n" + "\n\n".join(texts_with_contexts)
 

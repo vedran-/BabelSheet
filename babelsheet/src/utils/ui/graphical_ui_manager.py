@@ -202,7 +202,7 @@ class GraphicalUIManager:
         self.status_text.setReadOnly(True)
         self.status_text.setMaximumHeight(250)
         self.status_text.setAcceptRichText(True)
-        
+
         # Set default font and styling
         #font = self.status_text.font()
         #font.setPointSize(10)
