@@ -98,7 +98,7 @@ specialized for casual mobile games. Your task is to provide accurate and cultur
 # Translation Rules:
 - Use provided RELEVANT_TRANSLATIONS as a term base for consistency. For names, try to use the translation from the term base. For other terms and phrases, try to use your best judgement what would be the most appropriate translation of the source text, provided wider context.
 - Preserve all non-translatable terms exactly as specified in each text's context. Those are special terms which match the following patterns: {str(self.config['qa']['non_translatable_patterns'])}
-- Keep appropriate format (uppercase/lowercase)
+- Keep appropriate format (uppercase/lowercase) as in source text. E.g. if source text has a word in ALL CAPS, then that word should also be in ALL CAPS in the translation
 - Replace newlines with \\n, and quotes with \\" or \\'
 - Keep translations lighthearted and fun, but precise
 - Keep translations concise to fit UI elements

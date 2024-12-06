@@ -124,42 +124,59 @@ class QAHandler:
                        .replace("\\'", "'"))
         return [token.text for token in doc if not token.is_space]
 
-    def get_word_capitalization(self, text: str) -> Tuple[int, int, int]:
-        """Returns counts of all caps, non-all caps, and short all caps words."""
-        words = self.extract_words(text)
-        all_caps_words_count = sum(1 for word in words if word.isupper())
-        non_all_caps_words_count = sum(1 for word in words if not word.isupper())
-        short_non_all_caps_words_count = sum(1 for word in words if not word.isupper() and len(word) <= 3)
-        return all_caps_words_count, non_all_caps_words_count, short_non_all_caps_words_count
+    def _analyze_capitalization(self, text: str ) -> Dict[str, List[str]]:
+        n = {}
+        n['words'] = self.extract_words(text)
+        n['all_caps_words'] = [word for word in n['words'] if len(word) > 1 and word.isupper()]
+        n['non_all_caps_words'] = [word for word in n['words'] if len(word) > 1 and not word.isupper()]
+        n['short_non_all_caps_words'] = [word for word in n['words'] if len(word) > 1 and not word.isupper() and len(word) <= 3]
+        n['has_caps'] = len(n['all_caps_words']) > 0
+        n['has_all_caps'] = len(n['all_caps_words']) > 0 and len(n['non_all_caps_words']) == 0
+        n['has_short_non_caps'] = len(n['short_non_all_caps_words']) > 0
+        n['has_non_caps'] = len(n['non_all_caps_words']) > 0
+        return n
 
     def _validate_format(self, source: str, translation: str) -> List[str]:
         """Check format consistency between source and translation."""
         issues = []
-        source_all_caps_words_count, source_non_all_caps_words_count, source_short_non_all_caps_words_count = self.get_word_capitalization(source)
-        trans_all_caps_words_count, trans_non_all_caps_words_count, trans_short_non_all_caps_words_count = self.get_word_capitalization(translation)
 
-        source_has_caps = source_all_caps_words_count > 0
-        trans_has_caps = trans_all_caps_words_count > 0
-        source_all_caps = source_all_caps_words_count > 0 and source_non_all_caps_words_count == 0
-        trans_all_caps = trans_all_caps_words_count > 0 and trans_non_all_caps_words_count == 0
+        source_analysis = self._analyze_capitalization(source)
+        translation_analysis = self._analyze_capitalization(translation)
 
         # Compare flags
-        if source_has_caps != trans_has_caps:
+        if source_analysis['has_caps'] != translation_analysis['has_caps']:
+            # Find the ALL CAPS words in source
+            caps_words_str = ', '.join(f'`{word}`' for word in source_analysis['all_caps_words'])
+            
             issues.append(
-                f"Capitalization mismatch: source {'has' if source_has_caps else 'does not have'} "
-                f"ALL CAPS words, but translation {'has' if trans_has_caps else 'does not have'} them. "
+                f"Capitalization mismatch: The following words should be in ALL CAPS in the translation: {caps_words_str}. "
                 f"Source: '{source}', Translation: '{translation}'"
             )
-        elif source_all_caps != trans_all_caps \
+        elif source_analysis['has_all_caps'] != translation_analysis['has_all_caps'] \
             and (
-                (source_short_non_all_caps_words_count > 1 or source_all_caps_words_count <= 1) or
-                (trans_short_non_all_caps_words_count > 1 or trans_all_caps_words_count <= 1)
+                (len(source_analysis['short_non_all_caps_words']) > 1 or len(source_analysis['all_caps_words']) <= 1) or
+                (len(translation_analysis['short_non_all_caps_words']) > 1 or len(translation_analysis['all_caps_words']) <= 1)
             ):
-            issues.append(
-                f"Capitalization mismatch: {'all' if source_all_caps else 'not all'} words in source are "
-                f"ALL CAPS, but {'all' if trans_all_caps else 'not all'} words in translation are. "
-                f"Source: '{source}', Translation: '{translation}'"
-            )
+            
+            # Find which words should or shouldn't be in caps           
+            if source_analysis['has_all_caps']:
+                issues.append(
+                    f"Capitalization mismatch: All words should be in ALL CAPS in the translation. "
+                    f"Source: '{source}', Translation: '{translation}'"
+                )
+            else:
+                if len(source_analysis['all_caps_words']) > len(translation_analysis['all_caps_words']):
+                    # Find words that should be uppercase based on source
+                    source_caps_map = {word.lower(): word for word in source_analysis['all_caps_words']}
+                    missing_caps = []
+                    for word in translation_analysis['all_caps_words']:
+                        if word.lower() in source_caps_map and not word.isupper():
+                            missing_caps.append(word)
+                    missing_caps_str = ', '.join(f'`{word}`' for word in missing_caps)
+                    issues.append(
+                        f"Capitalization mismatch: The following words should be in ALL CAPS: {missing_caps_str}. "
+                        f"Source: '{source}', Translation: '{translation}'"
+                    )
         
         def count_newlines(text: str) -> int:
             """Count newlines in text, handling both \\n and \n"""
@@ -326,7 +343,7 @@ class QAHandler:
             f"- If translation spans multiple lines, the translation should keep the same line breaks as the source text, and also should have each row equal in length if possible\n"
             f"- For newlines, we accept both `\\n` and actual newline characters\n"
             f"- Keep translations concise to fit UI elements\n"
-            f"- Keeping with syntax of the source text (e.g. punctuation, capitalization)\n\n"
+            f"- Keeping with syntax of the source text (e.g. punctuation, capitalization of words which were capitalized in source text)\n\n"
         )
 
         combined_prompt += f"\n# Translations to Validate ({len(items)} texts):\n"

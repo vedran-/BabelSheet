@@ -55,7 +55,7 @@ class SheetsHandler:
             ).execute()
             
             spreadsheet_name = spreadsheet.get('properties', {}).get('title', 'Unknown')
-            self.ctx.ui.info(f"Loaded entire spreadsheet <b><font color='yellow'>{spreadsheet_name}</font></b><font color='gray'>, id: {spreadsheet_id}</font>")
+            self.ctx.ui.info(f"Loaded entire spreadsheet <b><font color='cyan'>{spreadsheet_name}</font></b><font color='gray'>, id: {spreadsheet_id}</font>")
             
             sheets = spreadsheet.get('sheets', [])
             for sheet in sheets:
