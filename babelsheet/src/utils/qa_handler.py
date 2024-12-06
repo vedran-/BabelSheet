@@ -149,7 +149,7 @@ class QAHandler:
             caps_words_str = ', '.join(f'`{word}`' for word in source_analysis['all_caps_words'])
             
             issues.append(
-                f"Capitalization mismatch: The following words should be in ALL CAPS in the translation: {caps_words_str}. "
+                f"Capitalization mismatch: The following words should be in ALL CAPS when translated: {caps_words_str}. "
                 f"Source: '{source}', Translation: '{translation}'"
             )
         elif source_analysis['has_all_caps'] != translation_analysis['has_all_caps'] \
@@ -174,7 +174,7 @@ class QAHandler:
                             missing_caps.append(word)
                     missing_caps_str = ', '.join(f'`{word}`' for word in missing_caps)
                     issues.append(
-                        f"Capitalization mismatch: The following words should be in ALL CAPS: {missing_caps_str}. "
+                        f"Capitalization mismatch: The following words should be in ALL CAPS when translated: {missing_caps_str}. "
                         f"Source: '{source}', Translation: '{translation}'"
                     )
         
@@ -325,14 +325,22 @@ class QAHandler:
 
         combined_prompt += (
             f"\n# Essential Requirements:\n"
-            f"1. Semantic accuracy:\n"
-            f"   - Translation conveys identical meaning to source text\n"
+            f"1. Grammatical and semantic accuracy:\n"
+            f"   - Translation is grammatically correct in target language\n"
+            f"   - Conveys identical meaning to source text\n"
             f"   - Key messages and nuances are preserved\n"
             f"   - Maintains tone while being accurate\n\n"
             f"2. Term base compliance:\n"
             f"   - Names MUST match RELEVANT_TRANSLATIONS exactly\n"
-            f"   - Other terms should follow RELEVANT_TRANSLATIONS unless a different translation would significantly improve clarity or naturalness\n"
-            f"   - Any deviation from term base must have clear contextual justification\n\n"
+            f"   - Other terms should follow RELEVANT_TRANSLATIONS unless doing so would:\n"
+            f"      * Result in grammatical errors\n"
+            f"      * Create awkward or unnatural phrasing\n"
+            f"      * Significantly impact readability\n"
+            f"   - Deviations from term base are acceptable when they improve:\n"
+            f"      * Grammatical correctness\n"
+            f"      * Natural flow\n"
+            f"      * Clarity of meaning\n"
+            f"   - Any deviation should preserve the core meaning of the term\n\n"
             f"3. Technical formatting:\n"
             f"   - Non-translatable terms preserved exactly as in source\n"
             f"   - Special terms between markup characters left untranslated\n"

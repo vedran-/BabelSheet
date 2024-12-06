@@ -432,7 +432,7 @@ class TranslationManager:
                 self.ui.end_table_update()
 
                 # Update UI with batch progress
-                self.ui.info(f"<b>Processing batch of {len(batch)} items for <font color='#afffaf'>{lang}</font></b>: <b>{', '.join(f"`<font color='#7fff7f'>{item['source_text']}</font>`" for item in batch)}</b>")
+                self.ui.info(f"<b>Processing batch of {len(batch)} items for <font color='cyan'>{lang}</font></b>: <b>{', '.join(f"`<font color='#7fff7f'>{item['source_text']}</font>`" for item in batch)}</b>")
 
                 # Perform translation in background
                 contexts = [item['context'] for item in batch]
