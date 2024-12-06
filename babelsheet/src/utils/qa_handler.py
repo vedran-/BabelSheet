@@ -5,6 +5,7 @@ from .ui_manager import UIManager
 from ..translation.translation_dictionary import TranslationDictionary
 import logging
 import json
+import asyncio
 
 class QAHandler:
     def __init__(self, 
@@ -360,16 +361,21 @@ class QAHandler:
             "required": ["validations"]
         }
         
-        quotes_warning = "When providing feedback, never use double quotes - instead, use ` (backtick). For example, write `word` not ''word'' or ""word"". This ensures the JSON response remains valid."
-        response = await self.llm_handler.generate_completion(
-            messages=[
-                {"role": "system", "content": (
-                    f"You are a professional translation validator for {target_lang} language. {quotes_warning}"
-                )},
-                {"role": "user", "content": combined_prompt + f"\n\n{quotes_warning}"}
-            ],
-            json_schema=validation_schema
-        )
+        try:
+            quotes_warning = "When providing feedback, never use double quotes - instead, use ` (backtick). For example, write `word` not ''word'' or ""word"". This ensures the JSON response remains valid."
+            response = await self.llm_handler.generate_completion(
+                messages=[
+                    {"role": "system", "content": (
+                        f"You are a professional translation validator for {target_lang} language. {quotes_warning}"
+                    )},
+                    {"role": "user", "content": combined_prompt + f"\n\n{quotes_warning}"}
+                ],
+                json_schema=validation_schema
+            )
+        except Exception as e:
+            self.logger.error(f"LLM API call failed: {str(e)}, sleeping for 3 minutes before retrying...")
+            await asyncio.sleep(180)
+            return await self.validate_with_llm_batch(items, target_lang, term_base)
 
         # Extract content from LiteLLM response
         content = response.choices[0].message.content.strip()

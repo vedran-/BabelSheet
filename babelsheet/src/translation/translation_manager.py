@@ -492,7 +492,7 @@ class TranslationManager:
                             # Update current state
                             missing_item['translation'] = translation
                             
-                            if len(missing_item['last_issues']) >= self.max_retries - 1:
+                            if len(missing_item['last_issues']) >= self.max_retries:
                                 self.ui.critical(f"Max retries reached for {lang} item {missing_item['source_text']}. Giving up.")
                                 skipped_items.append(missing_item)
                                 missing_items.remove(missing_item)
@@ -640,10 +640,11 @@ class TranslationManager:
                 return error_msg
 
         except Exception as e:
-            error_msg = f"Error during LLM translation: {str(e)}"
+            error_msg = f"Error during LLM translation: {str(e)}, sleeping for 3 minutes before retrying..."
             self.ui.error(error_msg)
             self.logger.error(error_msg)
-            raise
+            await asyncio.sleep(180)
+            return await self._get_llm_translations(source_texts, source_lang, target_lang, contexts, issues, term_base)
 
     async def _handle_term_suggestions(self, term_suggestions: List[Dict[str, str]], target_lang: str) -> None:
         """Handle term suggestions by adding them to the term base.

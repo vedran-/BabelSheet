@@ -114,7 +114,7 @@ class LLMHandler:
 
         if json_schema:
             json_requirement = f"You must respond ONLY with a valid JSON matching this schema: {json.dumps(json_schema)}." \
-                              "Make sure to escape all double quotes with \\\", and newlines with \\n."
+                              "Make sure to escape all double quotes with \\\"."
             
             # For Anthropic, we need to format the system message differently
             if "anthropic" in self.model.lower():
@@ -163,7 +163,11 @@ class LLMHandler:
             filename = f"{self.config.get('output', {}).get('dir', 'translation_logs')}/llm_{timestamp}_request.json"
             self.dump_json_to_file(data, filename)
 
-        while True:
+        max_retries = 7
+        retry_delay = 5
+        attempt = 0
+
+        while attempt < max_retries:
             try:
                 # Use LiteLLM's async completion function
                 response = await acompletion(**data, logger_fn=my_custom_logging_fn)
@@ -208,12 +212,25 @@ class LLMHandler:
 
                 return response
 
-            except litellm.InternalServerError as e:
-                # Add a 5 second delay before retrying
-                self.ctx.ui.warning(f"LLM InternalServerError: {str(e)}, retrying in 5 seconds...")
-                await asyncio.sleep(5)
-                continue
-            
+            except (litellm.InternalServerError,
+                    litellm.Timeout,
+                    litellm.RateLimitError,
+                    litellm.ServiceUnavailableError,
+                    litellm.OpenAIError,
+                    litellm.APIError,
+                    litellm.APIConnectionError,
+                    litellm.APIResponseValidationError,
+                    litellm.JSONSchemaValidationError,
+                    ) as e:
+                attempt += 1
+                if attempt < max_retries:
+                    self.ctx.ui.warning(f"LLM {e.__class__.__name__}: {str(e)}, retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 2, 300) # Max 5 minutes
+                    continue
+                else:
+                    raise Exception(f"LLM API call failed after {max_retries} attempts: {str(e)}")
+
             except Exception as e:
                 raise Exception(f"LLM API call failed: {str(e)}")
 
