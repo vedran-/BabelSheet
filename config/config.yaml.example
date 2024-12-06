@@ -6,15 +6,18 @@ google_sheets:
     - "https://www.googleapis.com/auth/drive.readonly"
   spreadsheet_id: null  # Optional: can be provided via CLI
 
+languages:
+  source: "en"                # Source language code
+  target: ["es", "fr", "de"]  # Default target languages if not specified via CLI
+
 llm:
   api_key: ""  # Set via LLM_API_KEY environment variable
-  model: "claude-3-5-sonnet-20241022"  # Recommended models: claude-3-5-sonnet-20241022, claude-3-5-sonnet-20240620, gpt-4o
-  temperature: 0.3  # Controls randomness in responses (0.0-1.0)
-  api_url: "https://api.openai.com/v1"  # LLM API endpoint
-  max_retries: 3    # Maximum retry attempts
+  model: "anthropic/claude-3-5-sonnet-20241022"    # The LLM model to use (e.g., "gpt-4", "claude-3-5-sonnet-20241022")
+  batch_size: 25    # Number of rows to process in a single batch (recommended: 5-20)
+
+  temperature: 0.2  # Controls randomness in responses (0.0-1.0)
+  max_retries: 5    # Maximum retry attempts
   retry_delay: 1    # Initial delay between retries in seconds
-  batch_size: 10    # Number of rows to process in a single batch (recommended: 5-20)
-  batch_delay: 1    # Delay in seconds between processing batches
 
 qa:
   max_length: 1000  # Maximum length for translations
@@ -38,10 +41,6 @@ context_columns:
 term_base:
   add_terms_to_term_base: true  # Add suggested terms to term base
   sheet_name: "term_base"  # Name of the sheet containing term base
-
-languages:
-  source: "en"
-  target: ["es", "fr", "de"]  # Default target languages if not specified via CLI
 
 ui:
   type: graphical  # Use graphical output mode

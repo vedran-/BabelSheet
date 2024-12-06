@@ -10,21 +10,29 @@ BabelSheet follows Domain-Driven Design principles, organizing code around busin
 babelsheet/
 ├── src/                      # Source code
 │   ├── translation/          # Translation domain
-│   │   └── translation_manager.py
+│   │   ├── translation_manager.py
+│   │   ├── translation_prompts.py
+│   │   └── translation_dictionary.py
 │   ├── sheets/              # Google Sheets domain
 │   │   └── sheets_handler.py
 │   ├── term_base/           # Term Base domain
 │   │   └── term_base_handler.py
 │   ├── utils/               # Utility modules
-│   │   ├── auth.py
-│   │   ├── llm_handler.py
-│   │   └── qa_handler.py
+│   │   ├── auth.py         # Authentication handling
+│   │   ├── llm_handler.py  # LLM integration
+│   │   ├── qa_handler.py   # Quality assurance
+│   │   ├── sheet_index.py  # Sheet indexing
+│   │   ├── ui_manager.py   # UI abstraction
+│   │   └─�� ui/             # UI implementations
+│   │       ├── base_ui_manager.py
+│   │       └── graphical_ui_manager.py
 │   └── cli/                 # CLI interface
 │       └── main.py
 ├── config/                  # Configuration
 │   ├── config.yaml         # Active configuration
-│   └── config.yaml.example # Example configuration template
+│   └── config.yaml.example # Example configuration
 ├── docs/                    # Documentation
+├── translation_logs/        # Translation logs
 └── tests/                   # Test suite
 ```
 
@@ -36,71 +44,50 @@ The core domain handling translation logic and orchestration.
 
 #### TranslationManager
 
-Main service for managing translations, implementing batch processing and validation.
+Main service orchestrating the translation process:
+- Batch processing
+- Translation workflow management
+- Error handling and retries
+- Term base integration
+- Quality assurance coordination
 
 ```python
 class TranslationManager:
-    def __init__(self, config: Dict)
-    
-    # Core translation methods
-    async def translate_text(self, source_texts: List[str], source_lang: str, target_lang: str, 
-                           contexts: List[str], term_base: Dict[str, str]) -> List[Tuple[str, List[str]]]
-    
-    async def batch_translate(self, texts: List[str], target_lang: str,
-                            contexts: List[str], term_base: Dict[str, str],
-                            df: Optional[pd.DataFrame],
-                            row_indices: Optional[List[int]]) -> AsyncGenerator[List[Dict[str, Any]], None]
-    
-    # Helper methods
-    def detect_missing_translations(self, df: pd.DataFrame, 
-                                  source_lang: str,
-                                  target_langs: List[str]) -> Dict[str, List[int]]
-    
-    async def _perform_translation(self, source_texts: List[str], source_lang: str,
-                                 target_lang: str, contexts: List[str],
-                                 term_base: Dict[str, str]) -> List[Tuple[str, List[str]]]
-    
-    async def extract_terms(self, text: str, context: str, target_lang: str) -> Dict[str, Dict[str, str]]
+    async def collect_all_missing_translations(self, source_lang: str, target_langs: List[str])
+    async def _process_missing_translations(self, df: pd.DataFrame, missing_translations: Dict)
+    async def _perform_translation(self, source_texts: List[str], source_lang: str, target_lang: str)
+    async def _validate_translations(self, source_texts: List[str], translations: List[Dict])
 ```
 
-Key Features:
-- True batch processing with configurable batch size
-- Immediate batch updates to Google Sheets
-- Context-aware translations
+#### TranslationPrompts
+
+Manages LLM prompts and response schemas:
+- Translation instructions
 - Term base integration
-- Quality assurance validation
-- Parallel validation processing
-- Configurable retry mechanism
-- Batch-level error handling
+- Non-translatable terms handling
+- Override instructions
+- Response schema definitions
+
+#### TranslationDictionary
+
+Handles translation memory and caching:
+- Stores successful translations
+- Prevents duplicate translations
+- Provides translation suggestions
+- Maintains consistency
 
 ### Google Sheets Domain (`src/sheets/`)
 
 Handles all interactions with Google Sheets API.
 
-#### GoogleSheetsHandler
+#### SheetsHandler
 
 ```python
-class GoogleSheetsHandler:
-    def __init__(self, credentials: Credentials)
-    
-    # Sheet operations
-    def set_spreadsheet(self, spreadsheet_id: str)
-    def get_all_sheets(self) -> List[str]
-    def read_sheet(self, sheet_name: str) -> pd.DataFrame
-    def update_sheet(self, sheet_name: str, df: pd.DataFrame)
-    def write_translations(self, sheet_name: str, updates: Dict[str, Any])
-    
-    # Context handling
-    def get_context_from_row(self, row: pd.Series, context_patterns: List[str],
-                           ignore_case: bool = True) -> str
-    
-    # Sheet management
-    def ensure_language_columns(self, sheet_name: str, langs: List[str],
-                              force: bool = False) -> bool
-    
-    # Cache management
-    def clear_cache(self)
-    def _get_sheet_data(self, sheet_name: str) -> pd.DataFrame
+class SheetsHandler:
+    def modify_cell_data(self, sheet_name: str, row: int, col: int, value: str)
+    def get_sheet_data(self, sheet_name: str) -> pd.DataFrame
+    def get_sheet_names(self) -> List[str]
+    def ensure_sheet_exists(self, sheet_name: str) -> bool
 ```
 
 ### Term Base Domain (`src/term_base/`)
@@ -111,211 +98,272 @@ Manages terminology consistency across translations.
 
 ```python
 class TermBaseHandler:
-    def __init__(self, sheets_handler: GoogleSheetsHandler, sheet_name: str)
-    
-    def load_term_base(self) -> Dict[str, Dict[str, str]]
-    def update_term_base(self, new_terms: Dict[str, Dict[str, str]])
+    def get_term_base(self, target_lang: str) -> Dict[str, Dict[str, Any]]
+    def add_term(self, source_term: str, target_lang: str, translation: str, comment: str)
+    def update_term_base(self, terms: Dict[str, Dict[str, Any]])
 ```
 
 ### Utility Services (`src/utils/`)
 
 #### LLMHandler
 
-Manages interactions with Language Model APIs.
+Manages interactions with Language Model APIs:
+- Multiple provider support (OpenAI, Anthropic, etc.)
+- Response parsing and validation
+- Error handling and retries
+- Rate limiting
 
 ```python
 class LLMHandler:
-    def __init__(self, api_key: str, base_url: str, model: str, temperature: float)
-    
-    async def generate_completion(self, messages: List[Dict], json_schema: Dict) -> str
+    async def get_completion(self, messages: List[Dict], json_schema: Dict) -> Dict
     def extract_structured_response(self, response: str) -> Dict
 ```
 
 #### QAHandler
 
-Handles translation quality assurance.
+Comprehensive translation quality assurance:
+- Format validation
+- Term base compliance
+- Non-translatable terms verification
+- Cultural appropriateness
+- Parallel validation processing
 
 ```python
 class QAHandler:
-    def __init__(self, max_length: int, llm_handler: LLMHandler)
-    
-    async def validate_translation(self, source_text: str, translated_text: str,
-                                 term_base: Dict[str, str],
-                                 skip_llm_on_issues: bool = False) -> List[str]
+    async def validate_with_llm_batch(self, items: List[Dict], target_lang: str)
+    def validate_syntax(self, source_text: str, translated_text: str) -> List[str]
 ```
 
-## Configuration
+#### UI System
+
+Modern terminal UI system with multiple implementations:
+
+##### UI Factory
+
+```python
+class UIFactory:
+    @staticmethod
+    def create_ui_manager(config: Dict, llm_handler: LLMHandler) -> BaseUIManager
+```
+
+##### BaseUIManager
+- Core UI functionality
+- Progress tracking
+- Status updates
+- Error reporting
+- Abstract base class for UI implementations
+
+##### GraphicalUIManager
+- Rich terminal UI
+- Real-time updates
+- Color-coded status
+- Interactive elements
+- Translation progress
+- Statistics display
+- Table-based layout
+- Live updates
+
+##### ConsoleUIManager
+- Simple console output
+- Basic progress indicators
+- Error reporting
+- Non-interactive mode
+- Minimal dependencies
+
+## Configuration System
 
 ### config.yaml Structure
 
 ```yaml
 google_sheets:
-  credentials_file: str       # Path to Google API credentials
-  token_file: str            # Path to token storage
-  scopes: List[str]          # Required API scopes
-  spreadsheet_id: Optional[str] # Can be provided via CLI
-
-llm:
-  api_key: str               # Set via LLM_API_KEY environment variable
-  model: str                 # e.g., "gpt-4", "claude-3-sonnet"
-  temperature: float         # Controls randomness (0.0-1.0)
-  api_url: str              # LLM API endpoint
-  max_retries: int          # Maximum retry attempts
-  retry_delay: int          # Delay between retries (seconds)
-  batch_size: int           # Rows per batch (default: 50)
-  batch_delay: int          # Delay between batches (seconds)
-
-qa:
-  max_length: int           # Maximum length for QA validation
-  non_translatable_patterns:
-    - start: "{["   # Matches {[TERM]}
-      end: "]}"
-    - start: "<"    # Matches <TERM>
-      end: ">"
-
-context_columns:
-  patterns: List[str]       # Column name patterns for context
-  ignore_case: bool         # Case-insensitive pattern matching
-
-term_base:
-  sheet_name: str           # Term base sheet name
-  columns:
-    term: str              # Column for source terms
-    comment: str           # Column for term comments
-    translation_prefix: str # Prefix for translation columns
+  credentials_file: str
+  token_file: str
+  spreadsheet_id: str
+  scopes: List[str]
 
 languages:
-  source: str              # Source language code
-  target: List[str]        # Default target languages
+  source: str
+  target: List[str]
+
+llm:
+  api_key: str
+  model: str
+  temperature: float
+  max_retries: int
+  batch_size: int
+  batch_delay: int
+
+qa:
+  max_length: int
+  non_translatable_patterns:
+    - start: str
+      end: str
+
+term_base:
+  sheet_name: str
+  columns:
+    term: str
+    comment: str
+    translation_prefix: str
+  add_terms_to_term_base: bool
+
+output:
+  dir: str
+
+ui:
+  type: str  # graphical or simple
 ```
 
-## Domain Events and Workflows
+## Core Workflows
 
-1. Translation Workflow:
+### Translation Process
+
+1. **Initialization**
+   - Load configuration
+   - Initialize services
+   - Connect to Google Sheets
+   - Load term base
+   - Setup UI system
+   - Initialize logging
+
+2. **Analysis**
    - Detect missing translations
    - Group by language
-   - Process in configurable batches
-   - Validate translations in parallel
-   - Immediate batch updates to Google Sheets
-   - Retry failed translations
-   - Handle batch-level errors
+   - Sort by text length
+   - Prepare batches
+   - Calculate statistics
 
-2. Term Base Management:
-   - Load existing terms
-   - Extract new terms
+3. **Translation**
+   - Process in batches
+   - Apply term base
+   - Handle retries
+   - Update sheets
+   - Log progress
+   - Update UI
+   - Cache translations
+
+4. **Validation**
+   - Syntax checking
+   - Term verification
+   - Format validation
+   - Cultural checks
+   - Parallel processing
+   - Override handling
+
+5. **Completion**
    - Update term base
-   - Apply terms in translations
+   - Generate statistics
+   - Create logs
+   - Report results
+   - Clean up resources
 
-3. Quality Assurance:
-   - Validate translations
-   - Check term base compliance
-   - Verify cultural appropriateness
-   - Ensure format preservation
+### Error Handling
 
-## Design Patterns Used
+1. **Translation Errors**
+   - Automatic retries
+   - Detailed logging
+   - User notifications
+   - Progress preservation
 
-1. **Repository Pattern**: Used in GoogleSheetsHandler for data access abstraction
-2. **Factory Pattern**: Used in configuration and handler initialization
-3. **Strategy Pattern**: Used in translation and validation processes
-4. **Observer Pattern**: Used in logging and event handling
-5. **Command Pattern**: Used in CLI implementation
-6. **Generator Pattern**: Used in batch processing for memory efficiency
+2. **API Errors**
+   - Rate limiting
+   - Connection retries
+   - Fallback options
+   - Error reporting
 
-## Bounded Contexts
+3. **Validation Errors**
+   - Issue categorization
+   - Retry suggestions
+   - Override options
+   - Progress tracking
 
-1. **Translation Context**:
-   - Core domain
-   - Handles translation logic and orchestration
-   - Manages batch processing
-   - Interfaces with LLM services
+### Logging System
 
-2. **Sheet Management Context**:
-   - Supporting domain
-   - Manages Google Sheets interactions
-   - Handles data persistence
-   - Manages batch updates
+1. **Translation Logs**
+   - Success/failure tracking
+   - Detailed error messages
+   - Translation attempts
+   - Validation issues
+   - Term base updates
 
-3. **Term Base Context**:
-   - Supporting domain
-   - Manages terminology consistency
-   - Provides translation references
+2. **Performance Logs**
+   - Batch processing times
+   - API response times
+   - Memory usage
+   - Cache statistics
 
-4. **Quality Assurance Context**:
-   - Supporting domain
-   - Validates translations
-   - Ensures quality standards
-   - Handles parallel validation
+3. **Debug Logs**
+   - API interactions
+   - Sheet operations
+   - Term base updates
+   - Validation details
 
 ## Extension Points
 
-1. **New Translation Services**:
-   - Implement new LLM handlers
-   - Add new translation strategies
-   - Customize batch processing
+1. **LLM Providers**
+   - Add new providers
+   - Custom configurations
+   - Response handling
+   - Error management
 
-2. **Additional Validation Rules**:
-   - Extend QAHandler
-   - Add new validation strategies
-   - Implement custom validation flows
+2. **UI Systems**
+   - New UI implementations
+   - Custom displays
+   - Progress tracking
+   - User interaction
 
-3. **Term Base Enhancements**:
-   - Add term extraction methods
-   - Implement term suggestions
-   - Add term validation rules
+3. **Validation Rules**
+   - Custom validators
+   - New quality checks
+   - Language-specific rules
+   - Format verification
 
-4. **Sheet Providers**:
-   - Support additional spreadsheet services
-   - Implement new data sources
-   - Add custom update strategies
+4. **Term Base Features**
+   - Term extraction
+   - Suggestion systems
+   - Context handling
+   - Override management
 
-## Best Practices for Development
+5. **Logging Extensions**
+   - Custom log formats
+   - Additional metrics
+   - External logging systems
+   - Performance monitoring
 
-1. **Adding New Features**:
-   - Identify the appropriate domain
+## Development Guidelines
+
+1. **Adding Features**
    - Follow DDD principles
    - Maintain bounded contexts
-   - Add appropriate tests
-   - Consider batch processing implications
+   - Add comprehensive tests
+   - Update documentation
 
-2. **Configuration Changes**:
-   - Update config.yaml schema
-   - Update config.yaml.example
-   - Update validation logic
-   - Document new settings
+2. **Code Style**
+   - Type hints
+   - Async/await
+   - Error handling
+   - Logging
 
-3. **Error Handling**:
-   - Use domain-specific exceptions
-   - Implement proper logging
-   - Maintain transaction boundaries
-   - Handle batch-level errors
+3. **Testing**
+   - Unit tests
+   - Integration tests
+   - Mock external services
+   - Test configurations
 
-4. **Testing**:
-   - Write unit tests for domain logic
-   - Add integration tests for workflows
-   - Test batch processing scenarios
-   - Test error recovery
+4. **Documentation**
+   - Code comments
+   - Type hints
+   - README updates
+   - API documentation
 
-### Quality Assurance Context
+5. **Performance Optimization**
+   - Batch size tuning
+   - Cache management
+   - Memory optimization
+   - API rate limiting
 
-Quality assurance includes several validation checks:
-- Non-translatable terms preservation
-- Term base compliance
-- Cultural appropriateness
-- Format preservation
-
-#### Non-Translatable Terms
-
-The system supports configurable patterns for identifying terms that should not be translated:
-```yaml
-qa:
-  non_translatable_patterns:
-    - start: "{["   # Matches {[TERM]}
-      end: "]}"
-    - start: "<"    # Matches <TERM>
-      end: ">"
-```
-
-These patterns are used to:
-1. Extract terms from source text
-2. Verify their presence in translated text
-3. Ensure exact preservation of terms
+6. **Logging Best Practices**
+   - Use appropriate log levels
+   - Include context
+   - Structure log messages
+   - Monitor performance metrics

@@ -96,7 +96,7 @@ class LLMHandler:
 
     def dump_json_to_file(self, data: Dict[str, Any], filename: str) -> None:
         json_str = json.dumps(data, indent=2, ensure_ascii=False)
-        json_str = json_str.replace('\\n', '\n')
+        json_str = json_str.replace('\\\\n', '\n').replace('\\n', '\n')
         with open(filename, "w", encoding='utf-8') as f:
             f.write(json_str)
 
