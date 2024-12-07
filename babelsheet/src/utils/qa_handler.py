@@ -223,9 +223,11 @@ class QAHandler:
             issues.append(f"Capitalization mismatch: Words in the translation should be in ALL CAPS, as they are in the source text.")
         elif not source_analysis['has_all_caps'] and translation_analysis['has_all_caps']:
             issues.append(f"Capitalization mismatch: Translation has too many words in ALL CAPS, compared to the source text. Please match the source text's capitalization per word in the translation.")
-        elif source_analysis['has_caps'] and not translation_analysis['has_caps']:
+        elif source_analysis['has_caps'] and not translation_analysis['has_caps'] \
+            and max(len(word) for word in source_analysis['all_caps_words']) > 2:   # We can ignore words that are 2 characters or less, like I, WC, etc.
             issues.append(f"Capitalization mismatch: Some words in the translation should be in ALL CAPS, as they are in the source text. Please add ALL CAPS to the words in the translation that are in ALL CAPS in the source text.")
-        elif not source_analysis['has_caps'] and translation_analysis['has_caps']:
+        elif not source_analysis['has_caps'] and translation_analysis['has_caps'] \
+            and max(len(word) for word in translation_analysis['all_caps_words']) > 2: # We can ignore words that are 2 characters or less, like I, WC, etc.
             issues.append(f"Capitalization mismatch: Translation has too many words in ALL CAPS, compared to the source text. Please remove ALL CAPS from the words in the translation that are not in ALL CAPS in the source text.")
         
         # Check newline preservation using normalized counts, allowing 1 line difference
@@ -252,29 +254,29 @@ class QAHandler:
             source_terms = self.extract_non_translatable_terms(source)
             for term in source_terms:
                 if term not in translation:
-                    issues.append(f"Non-translatable term '{term}' must appear exactly as in source ({source})")
+                    issues.append(f"Non-translatable term `{term}` must appear exactly as in source text")
                 elif translation.count(term) != source.count(term):
-                    issues.append(f"Non-translatable term '{term}' appears {translation.count(term)} times in translation ({translation}) but {source.count(term)} times in source ({source})")
+                    issues.append(f"Non-translatable term `{term}` appears {translation.count(term)} times in translation, but {source.count(term)} times in source text.")
         
         # Check square brackets
         source_brackets = re.findall(r'\[.*?\]', source)
         trans_brackets = re.findall(r'\[.*?\]', translation)
         if len(source_brackets) != len(trans_brackets):
-            issues.append(f"Square bracket markup count mismatch between source ({source}) and translation ({translation})")
+            issues.append(f"Square bracket markup count mismatch between source text and translation")
         else:
             for s, t in zip(source_brackets, trans_brackets):
                 if s != t:
-                    issues.append(f"Square bracket content modified: {s} -> {t} between source ({source}) and translation ({translation})")
+                    issues.append(f"Square bracket content modified: `{s}` -> `{t}` between source text and translation")
         
         # Check curly braces
         source_braces = re.findall(r'\{.*?\}', source)
         trans_braces = re.findall(r'\{.*?\}', translation)
         if len(source_braces) != len(trans_braces):
-            issues.append(f"Curly brace markup count mismatch between source ({source}) and translation ({translation})")
+            issues.append(f"Curly brace markup count mismatch between source text and translation")
         else:
             for s, t in zip(source_braces, trans_braces):
                 if s != t:
-                    issues.append(f"Curly brace content modified: {s} -> {t} between source ({source}) and translation ({translation})")
+                    issues.append(f"Curly brace content modified: `{s}` -> `{t}` between source text and translation")
         
         # Check < and >
         source_angle_brackets = re.findall(r'<.*?>', source)
@@ -284,7 +286,7 @@ class QAHandler:
         else:
             for s, t in zip(source_angle_brackets, trans_angle_brackets):
                 if s != t:
-                    issues.append(f"Angle bracket content modified: {s} -> {t} between source ({source}) and translation ({translation})")
+                    issues.append(f"Angle bracket content modified: `{s}` -> `{t}` between source text and translation")
 
         return issues
     
@@ -304,7 +306,7 @@ class QAHandler:
             comment = term_data.get('comment', '')
             
             if not expected_translation:
-                self.logger.warning(f"Skipping term '{source_term}' - no translation for {target_lang}")
+                self.logger.warning(f"Skipping term `{source_term}` - no translation for {target_lang}")
                 continue
             
             # Check if source term appears in translation
@@ -317,7 +319,7 @@ class QAHandler:
                 
                 # Check if expected translation is used
                 if expected_lower not in translation_lower:
-                    issue = f"Term base mismatch: '{source_term}' should be translated as '{expected_translation}'"
+                    issue = f"Term base mismatch: `{source_term}` should be translated as `{expected_translation}`"
                     if comment:
                         issue += f" (Note: {comment})"
                     self.logger.warning(f"Found term base issue: {issue}")
