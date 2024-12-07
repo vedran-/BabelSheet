@@ -393,7 +393,9 @@ class TranslationManager:
         self.ui.set_translation_list(missing_translations)
         
         # Sleep for a short time to give UI time to update
-        await asyncio.sleep(len(missing_translations) * 0.001)
+        time_to_sleep = total_items * 0.002
+        self.ui.debug(f"Sleeping for {int(time_to_sleep)} seconds to give UI time to update {total_items} translations...")
+        await asyncio.sleep(time_to_sleep)
 
         last_lang = None
         async def check_language_change(lang: str) -> None:

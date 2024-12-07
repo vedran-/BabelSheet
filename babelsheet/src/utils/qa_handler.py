@@ -9,8 +9,8 @@ import asyncio
 import spacy
 
 class QAHandler:
-    def __init__(self, 
-                 max_length: Optional[int] = None, 
+    def __init__(self,
+                 config: Dict[str, Any],
                  llm_handler: Optional[LLMHandler] = None, 
                  ui: Optional[UIManager] = None,
                  translation_dictionary: Optional[TranslationDictionary] = None,
@@ -23,12 +23,13 @@ class QAHandler:
             non_translatable_patterns: List of pattern dicts with 'start' and 'end' keys
             translation_dictionary: TranslationDictionary instance
         """
-        self.max_length = max_length
+        self.config = config
+        self.max_length = self.config.get('qa', {}).get('max_length', 1000)
         self.llm_handler = llm_handler
         self.logger = logging.getLogger(__name__)
         self.ui = ui
         self.translation_dictionary = translation_dictionary
-        
+
         # Validate and compile patterns if provided
         self.non_translatable_patterns = non_translatable_patterns
         if non_translatable_patterns:
@@ -83,7 +84,7 @@ class QAHandler:
                         issues.append(f"Non-translatable term '{term}' is missing in translation")
             
             # Basic format validation
-            format_issues = self._validate_format(source_text, translated_text)
+            format_issues = self._validate_format(source_text, translated_text, target_lang)
             if format_issues:
                 self.logger.debug(f"Found format issues: {format_issues}")
                 issues.extend(format_issues)
@@ -116,83 +117,129 @@ class QAHandler:
             self.logger.error(f"Translation validation failed: {str(e)}", exc_info=True)
             raise ValueError(f"Translation validation failed: {str(e)}")
 
-    def extract_words(self, text: str) -> List[str]:
+    def _extract_words(self, text: str) -> List[str]:
         """Extract words from text using spaCy."""
         doc = self.nlp(text.replace('\\n', '\n')
                        .replace('\\t', '\t')
                        .replace('\\"', '"')
                        .replace("\\'", "'"))
         return [token.text for token in doc if not token.is_space]
-
     def _analyze_capitalization(self, text: str ) -> Dict[str, List[str]]:
         n = {}
-        n['words'] = self.extract_words(text)
+        n['words'] = self._extract_words(text)
         n['all_caps_words'] = [word for word in n['words'] if len(word) > 1 and word.isupper()]
         n['non_all_caps_words'] = [word for word in n['words'] if len(word) > 1 and not word.isupper()]
-        n['short_non_all_caps_words'] = [word for word in n['words'] if len(word) > 1 and not word.isupper() and len(word) <= 3]
         n['has_caps'] = len(n['all_caps_words']) > 0
-        n['has_all_caps'] = len(n['all_caps_words']) > 0 and len(n['non_all_caps_words']) == 0
-        n['has_short_non_caps'] = len(n['short_non_all_caps_words']) > 0
-        n['has_non_caps'] = len(n['non_all_caps_words']) > 0
+        # Check if more than 70% of the words are in ALL CAPS
+        n['has_all_caps'] = len(n['all_caps_words']) / len(n['words']) > 0.7
         return n
 
-    def _validate_format(self, source: str, translation: str) -> List[str]:
+    @staticmethod
+    def _get_punctuation_sets() -> Dict[str, str]:
+        """Get punctuation marks organized by script type."""
+        return {
+            'latin': ".!?:,",
+            'cjk': "。！？：，｡︕？︓，",
+            'rtl': "؟؛،۔",  # RTL punctuation
+            'ethiopic': "።፧፨፠"  # Ethiopic script punctuation
+        }
+    @staticmethod
+    def _get_punctuation_type_sets() -> Dict[str, str]:
+        """Get punctuation marks organized by semantic type."""
+        return {
+            'question': "?？؟፧",  # Latin, CJK, Arabic, Ethiopic
+            'exclamation': "!！︕፨",
+            'period': ".。｡።۔",
+        }
+    def _get_ending_punctuation(self, text: str) -> str:
+        """Get the last character if it's a punctuation mark.
+        
+        Args:
+            text: The text to check for ending punctuation
+            
+        Returns:
+            The ending punctuation character if found, empty string otherwise
+        """
+        if not text.strip():
+            return ""
+        last_char = text.strip()[-1]
+        
+        # Combine all punctuation marks
+        all_puncts = ''.join(self._get_punctuation_sets().values())
+        
+        if last_char in all_puncts:
+            return last_char
+        return ""
+    def _get_punctuation_type(self, char: str) -> str:
+        """Determine the semantic type of a punctuation mark.
+        
+        Args:
+            char: The punctuation character to check
+            
+        Returns:
+            The semantic type of the punctuation ('question', 'exclamation', 'period', or 'other')
+        """
+        punct_types = self._get_punctuation_type_sets()
+        
+        for punct_type, chars in punct_types.items():
+            if char in chars:
+                return punct_type
+        return "other"
+    def _validate_ending_punctuation(self, source: str, translation: str) -> List[str]:
+        """Validate ending punctuation between source and translation.
+        
+        Args:
+            source: The source text
+            translation: The translated text
+            
+        Returns:
+            List of issues found with punctuation, empty if no issues
+        """
+        issues = []
+        source_end = self._get_ending_punctuation(source)
+        trans_end = self._get_ending_punctuation(translation)
+        
+        if bool(source_end) != bool(trans_end):
+            # One has punctuation, the other doesn't
+            issues.append(f"Ending punctuation does not match between source text and translation")
+        elif source_end and trans_end:
+            # Both have punctuation - check if they're semantically equivalent
+            source_type = self._get_punctuation_type(source_end)
+            trans_type = self._get_punctuation_type(trans_end)
+            
+            if source_type != trans_type:
+                issues.append(f"Ending punctuation type mismatch: source uses {source_end} ({source_type}) but translation uses {trans_end} ({trans_type})")
+        
+        return issues
+
+    def _validate_format(self, source: str, translation: str, target_lang: str) -> List[str]:
         """Check format consistency between source and translation."""
         issues = []
 
+        # Check capitalization
         source_analysis = self._analyze_capitalization(source)
         translation_analysis = self._analyze_capitalization(translation)
-
-        # Compare flags
-        if source_analysis['has_caps'] != translation_analysis['has_caps']:
-            # Find the ALL CAPS words in source
-            caps_words_str = ', '.join(f'`{word}`' for word in source_analysis['all_caps_words'])
-            
-            issues.append(
-                f"Capitalization mismatch: The following words should be in ALL CAPS when translated: {caps_words_str}. "
-                f"Source: '{source}', Translation: '{translation}'"
-            )
-        elif source_analysis['has_all_caps'] != translation_analysis['has_all_caps'] \
-            and (
-                (len(source_analysis['short_non_all_caps_words']) > 1 or len(source_analysis['all_caps_words']) <= 1) or
-                (len(translation_analysis['short_non_all_caps_words']) > 1 or len(translation_analysis['all_caps_words']) <= 1)
-            ):
-            
-            # Find which words should or shouldn't be in caps           
-            if source_analysis['has_all_caps']:
-                issues.append(
-                    f"Capitalization mismatch: All words should be in ALL CAPS in the translation. "
-                    f"Source: '{source}', Translation: '{translation}'"
-                )
-            else:
-                if len(source_analysis['all_caps_words']) > len(translation_analysis['all_caps_words']):
-                    # Find words that should be uppercase based on source
-                    source_caps_map = {word.lower(): word for word in source_analysis['all_caps_words']}
-                    missing_caps = []
-                    for word in translation_analysis['all_caps_words']:
-                        if word.lower() in source_caps_map and not word.isupper():
-                            missing_caps.append(word)
-                    missing_caps_str = ', '.join(f'`{word}`' for word in missing_caps)
-                    issues.append(
-                        f"Capitalization mismatch: The following words should be in ALL CAPS when translated: {missing_caps_str}. "
-                        f"Source: '{source}', Translation: '{translation}'"
-                    )
+        if source_analysis['has_all_caps'] and not translation_analysis['has_all_caps']:
+            issues.append(f"Capitalization mismatch: Words in the translation should be in ALL CAPS, as they are in the source text.")
+        elif not source_analysis['has_all_caps'] and translation_analysis['has_all_caps']:
+            issues.append(f"Capitalization mismatch: Translation has too many words in ALL CAPS, compared to the source text. Please match the source text's capitalization per word in the translation.")
+        elif source_analysis['has_caps'] and not translation_analysis['has_caps']:
+            issues.append(f"Capitalization mismatch: Some words in the translation should be in ALL CAPS, as they are in the source text. Please add ALL CAPS to the words in the translation that are in ALL CAPS in the source text.")
+        elif not source_analysis['has_caps'] and translation_analysis['has_caps']:
+            issues.append(f"Capitalization mismatch: Translation has too many words in ALL CAPS, compared to the source text. Please remove ALL CAPS from the words in the translation that are not in ALL CAPS in the source text.")
         
+        # Check newline preservation using normalized counts, allowing 1 line difference
         def count_newlines(text: str) -> int:
             """Count newlines in text, handling both \\n and \n"""
             return text.count('\\n') + text.count('\n')
-        
-        # Check newline preservation using normalized counts, allowing 1 line difference
         source_newlines = count_newlines(source)
         trans_newlines = count_newlines(translation)
         if abs(source_newlines - trans_newlines) > 1:  # Allow difference of 1
-            issues.append(f"Newline count mismatch between source ({source}) and translation ({translation})")
+            issues.append(f"Newline count mismatch between source text ({source_newlines} rows) and translation ({trans_newlines} rows). ")
             
-        # Check ending punctuation (after trimming)
-        source_end = re.search(r'[.!?:,]$', source.strip())
-        trans_end = re.search(r'[.!?:,]$', translation.strip())
-        if bool(source_end) != bool(trans_end):
-            issues.append(f"Ending punctuation does not match between source ({source.strip()}) and translation ({translation.strip()})")
+        # Check ending punctuation
+        punctuation_issues = self._validate_ending_punctuation(source, translation)
+        issues.extend(punctuation_issues)
             
         return issues
     
@@ -369,6 +416,9 @@ class QAHandler:
             f"- Deviations from term base (if any) are justified\n"
             f"- Formatting matches source exactly\n\n"
         )
+
+        if self.config['llm']['additional_llm_context']:
+            combined_prompt += f"\n# Wider context:\n{self.config['llm']['additional_llm_context']}\n\n"
 
         combined_prompt += f"\n# Translations to Validate ({len(items)} texts):\n"
 

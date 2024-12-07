@@ -117,6 +117,8 @@ llm:
   model: "anthropic/claude-3-5-sonnet-20241022"    # The LLM model to use (e.g., "gpt-4", "claude-3-5-sonnet-20241022")
   batch_size: 25    # Number of rows to process in a batch
 
+  additional_llm_context: "Additional context and instructions for the LLM, like app name and description, company name, etc."
+
   temperature: 0.2  # Controls randomness in responses
   max_retries: 5    # Maximum retry attempts
   retry_delay: 1    # Initial delay between retries

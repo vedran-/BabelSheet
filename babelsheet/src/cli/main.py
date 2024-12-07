@@ -234,7 +234,7 @@ async def translate(ctx, target_langs, verbose):
 
         # Initialize QA Handler
         ctx.qa_handler = QAHandler(
-            max_length=ctx.config.get('qa', {}).get('max_length', 1000),
+            config=ctx.config,
             llm_handler=ctx.llm_handler, ui=ctx.ui,
             translation_dictionary=ctx.translation_dictionary,
             non_translatable_patterns=ctx.config.get('qa', {}).get('non_translatable_patterns', [])

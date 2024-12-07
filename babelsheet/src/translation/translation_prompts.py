@@ -133,7 +133,8 @@ For each suggested term, provide:
   * A suggested translation
   * A brief comment explaining its usage/context in the source language ({source_lang})
 
-  
+{f"\n# Wider context:\n{self.config['llm']['additional_llm_context']}" if self.config['llm']['additional_llm_context'] else ''}
+
 {combined_texts}
   
 
