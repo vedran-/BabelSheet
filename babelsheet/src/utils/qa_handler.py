@@ -332,9 +332,8 @@ class QAHandler:
         #    self.logger.debug("No term base issues found")
         return issues
 
-    
-    async def validate_with_llm_batch(self, items: List[Dict[str, str]], target_lang: str, term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> List[List[str]]:
-        """Use LLM to validate multiple translations at once.
+    def _create_validation_prompt(self, items: List[Dict[str, str]], target_lang: str, term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
+        """Create a prompt for translation validation.
         
         Args:
             items: List of dictionaries containing 'source_text', 'translated_text', and 'context'
@@ -342,9 +341,8 @@ class QAHandler:
             term_base: Optional term base dictionary
             
         Returns:
-            List of lists containing validation issues for each translation
+            A formatted prompt string for the LLM validator
         """
-
         combined_prompt = (
             f"You are a professional translation validator for {target_lang} language. "
             f"Your task is to meticulously evaluate each translation for accuracy, consistency, and adherence to provided guidelines.\n\n"
@@ -380,16 +378,23 @@ class QAHandler:
             f"   - Key messages and nuances are preserved\n"
             f"   - Maintains tone while being accurate\n\n"
             f"2. Term base compliance:\n"
-            f"   - Names MUST match RELEVANT_TRANSLATIONS exactly\n"
-            f"   - Other terms should follow RELEVANT_TRANSLATIONS unless doing so would:\n"
-            f"      * Result in grammatical errors\n"
-            f"      * Create awkward or unnatural phrasing\n"
-            f"      * Significantly impact readability\n"
-            f"   - Deviations from term base are acceptable when they improve:\n"
-            f"      * Grammatical correctness\n"
-            f"      * Natural flow\n"
-            f"      * Clarity of meaning\n"
-            f"   - Any deviation should preserve the core meaning of the term\n\n"
+            f"   - Grammatical correctness is the highest priority:\n"
+            f"      * Names and brand terms must follow target language grammar rules\n"
+            f"      * Proper grammatical cases (nominative, genitive, etc.) must be used\n"
+            f"      * Base forms should align with RELEVANT_TRANSLATIONS\n"
+            f"      * Inflections are required when grammar demands it\n"
+            f"   - For other terms, verify contextual appropriateness:\n"
+            f"      * Is the term used in the same context as in RELEVANT_TRANSLATIONS?\n"
+            f"      * Does the current usage match the reference meaning?\n"
+            f"      * Are there multiple possible meanings (e.g., 'off' in 'turn off' vs '50% off')?\n"
+            f"   - Deviations from term base are REQUIRED when:\n"
+            f"      * Grammar rules demand different forms or cases\n"
+            f"      * The term appears in a different context\n"
+            f"      * Using the base translation would create incorrect meaning\n"
+            f"   - When validating deviations:\n"
+            f"      * Confirm grammatical correctness\n"
+            f"      * Verify contextual appropriateness\n"
+            f"      * Check that meaning is preserved for the specific usage\n\n"
             f"3. Technical formatting:\n"
             f"   - Non-translatable terms preserved exactly as in source\n"
             f"   - Special terms between markup characters left untranslated\n"
@@ -440,6 +445,21 @@ class QAHandler:
                 combined_prompt += f"Previously rejected translations:\n    - {'\n   - '.join(f'`{issue['translation'].replace('\n', '\\n')}` failed because: {issue['issues']}' for issue in item['previous_issues'])}\n"
 
             combined_prompt += "\n"
+            
+        return combined_prompt
+
+    async def validate_with_llm_batch(self, items: List[Dict[str, str]], target_lang: str, term_base: Optional[Dict[str, Dict[str, Any]]] = None) -> List[List[str]]:
+        """Use LLM to validate multiple translations at once.
+        
+        Args:
+            items: List of dictionaries containing 'source_text', 'translated_text', and 'context'
+            target_lang: Target language code
+            term_base: Optional term base dictionary
+            
+        Returns:
+            List of lists containing validation issues for each translation
+        """
+        combined_prompt = self._create_validation_prompt(items, target_lang, term_base)
 
         validation_schema = {
             "type": "object",

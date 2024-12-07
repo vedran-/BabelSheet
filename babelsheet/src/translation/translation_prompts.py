@@ -97,10 +97,24 @@ specialized for casual mobile games. Your task is to provide accurate and cultur
         prompt += f"""
 # Translation Rules:
 - Use RELEVANT_TRANSLATIONS as a term base with these priorities:
-    1. Grammatical correctness MUST be maintained
-    2. Names should match the term base exactly
-    3. Other terms should follow the term base when grammatically and contextually appropriate
-    4. When term base usage would result in awkward or incorrect grammar, prioritize natural translation
+    1. Grammatical correctness MUST be maintained:
+       * Names and brand terms should follow target language grammar rules
+       * Use proper grammatical cases (nominative, genitive, etc.) as required
+       * Base form of names should match RELEVANT_TRANSLATIONS
+       * Brand terms may be inflected when grammar requires it
+    2. For other terms, evaluate the context carefully:
+       * Is the term being used in the same way as in RELEVANT_TRANSLATIONS?
+       * Would using the term base translation maintain the intended meaning?
+       * Could the term have multiple meanings (e.g., 'off' in 'turn off' vs '50% off')?
+    3. Use different translations when:
+       * The term appears in a different context (e.g., 'off' in discounts vs power states)
+       * The term base translation would create incorrect meaning
+       * The term is part of a different grammatical construction
+    4. When deviating from term base:
+       * Choose a translation that fits the current context
+       * Ensure natural language flow
+       * Preserve the intended meaning for this specific usage
+
 - Preserve all non-translatable terms exactly as specified in each text's context. Those are special terms which match the following patterns: {str(self.config['qa']['non_translatable_patterns'])}
 - Keep appropriate format for each word (uppercase/lowercase) as in source text. E.g. if source text has a word in all caps, then that word, when translated, should also be in all caps
 - Replace newlines with \\n, and quotes with \\" or \\'

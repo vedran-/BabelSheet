@@ -1,6 +1,7 @@
 # BabelSheet
 
-BabelSheet is an automated translation tool for Google Sheets that uses AI to provide high-quality translations while maintaining consistency through a term base.
+BabelSheet is an automated translation tool that leverages AI to deliver high-quality translations with comprehensive validation. It translates texts from Google Sheets with their full context and builds an intelligent term base from existing translations. The multi-stage validation process combines local checks for technical accuracy (punctuation, capitalization, etc.) with AI-powered semantic validation that ensures translations maintain proper context and terminology. Failed translations automatically re-enter the translation pipeline until they meet quality standards, creating a robust feedback loop that consistently produces superior translations.
+
 
 ## Features
 
