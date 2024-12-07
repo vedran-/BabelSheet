@@ -131,7 +131,8 @@ class QAHandler:
         n['non_all_caps_words'] = [word for word in n['words'] if len(word) > 1 and not word.isupper()]
         n['has_caps'] = len(n['all_caps_words']) > 0
         # Check if more than 70% of the words are in ALL CAPS
-        n['has_all_caps'] = len(n['all_caps_words']) / len(n['words']) > 0.7
+        total_usable_words = len(n['all_caps_words']) + len(n['non_all_caps_words'])
+        n['has_all_caps'] = len(n['all_caps_words']) / total_usable_words > 0.7
         return n
 
     @staticmethod
@@ -219,14 +220,14 @@ class QAHandler:
         # Check capitalization
         source_analysis = self._analyze_capitalization(source)
         translation_analysis = self._analyze_capitalization(translation)
-        if source_analysis['has_all_caps'] and not translation_analysis['has_all_caps']:
+        if source_analysis['has_all_caps'] is True and translation_analysis['has_all_caps'] is False:
             issues.append(f"Capitalization mismatch: Words in the translation should be in ALL CAPS, as they are in the source text.")
-        elif not source_analysis['has_all_caps'] and translation_analysis['has_all_caps']:
+        elif source_analysis['has_all_caps'] is False and translation_analysis['has_all_caps'] is True:
             issues.append(f"Capitalization mismatch: Translation has too many words in ALL CAPS, compared to the source text. Please match the source text's capitalization per word in the translation.")
-        elif source_analysis['has_caps'] and not translation_analysis['has_caps'] \
+        elif source_analysis['has_caps'] is True and translation_analysis['has_caps'] is False \
             and max(len(word) for word in source_analysis['all_caps_words']) > 2:   # We can ignore words that are 2 characters or less, like I, WC, etc.
             issues.append(f"Capitalization mismatch: Some words in the translation should be in ALL CAPS, as they are in the source text. Please add ALL CAPS to the words in the translation that are in ALL CAPS in the source text.")
-        elif not source_analysis['has_caps'] and translation_analysis['has_caps'] \
+        elif source_analysis['has_caps'] is False and translation_analysis['has_caps'] is True \
             and max(len(word) for word in translation_analysis['all_caps_words']) > 2: # We can ignore words that are 2 characters or less, like I, WC, etc.
             issues.append(f"Capitalization mismatch: Translation has too many words in ALL CAPS, compared to the source text. Please remove ALL CAPS from the words in the translation that are not in ALL CAPS in the source text.")
         
