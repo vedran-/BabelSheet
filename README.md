@@ -4,7 +4,7 @@
 
 BabelSheet is an automated translation tool that leverages AI to deliver high-quality translations with comprehensive validation.
 
- - It translates texts from Google Sheets with their full context and builds an intelligent term base from existing translations.
+ - It translates texts from Google Sheets with their full context, builds an intelligent term base from existing translations, and automatically uploads the translations back to your sheets.
  - The multi-stage validation process combines local checks for technical accuracy (punctuation, capitalization, etc.) with AI-powered semantic validation that ensures translations maintain proper context and terminology.
  - Failed translations automatically re-enter the translation pipeline until they meet quality standards, creating a robust feedback loop that consistently produces superior translations.
 
@@ -46,6 +46,7 @@ BabelSheet is an automated translation tool that leverages AI to deliver high-qu
   - If configured, it will allow Translation LLM to override validation if it detects false positives
   - Translation caching
 
+
 ## Installation
 
 1. Clone the repository:
@@ -81,6 +82,12 @@ pip install -e .
   - Target language columns (e.g., 'es' for Spanish, 'fr' for French, etc.)
   - Optional context columns, which will be used to improve translations (matched by patterns in config)
   - Language columns can be named anything which LLM could understand, e.g. "en" or "english" or "english_US" should work. But they have to appear in the sheet exactly as they are named in configuration.
+
+
+## Token Usage and Cost Metrics (for reference, your mileage may vary)
+
+Translating and validating 1000 rows of text for an app would use approximately 270,000 prompt tokens and 85,000 completion tokens.
+These metrics can vary based on text length and complexity, and how many iterations are needed to get the translation right.
 
 
 ## Configuration
