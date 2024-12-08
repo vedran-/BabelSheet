@@ -1,9 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from collections import deque
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                           QTableWidget, QTableWidgetItem, QTextEdit, QLabel,
-                          QGridLayout, QHeaderView)
+                          QGridLayout, QHeaderView, QProgressBar)
 from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal, QSize
 from PyQt6.QtGui import QColor, QPalette, QIcon
 from ..llm_handler import LLMHandler
@@ -57,6 +57,14 @@ class GraphicalUIManager:
         self.window.setWindowTitle("BabelSheet Translator")
         self.window.resize(1200, 800)
         self._set_window_icon()
+        
+        # Time tracking
+        self.start_time = datetime.now()
+        self.translation_times = []
+        self.current_translation_start = None
+        self.failed_translation_times = []
+        self.last_successful_translation = None
+        self.interrupted_translations = []
         
         # Create signals object
         self.signals = UISignals()
@@ -160,12 +168,30 @@ class GraphicalUIManager:
         self.stats_widget = QWidget()
         self.stats_layout = QGridLayout(self.stats_widget)
         
-        self.total_label = QLabel("Total Attempts: 0")
         self.llm_stats_label = QLabel("LLM Stats: 0 tokens, $0.00")
         self.languages_label = QLabel("📊 Languages: 'en' (source), 'es' (target)")
+        self.time_stats_label = QLabel("⏱️ Time Stats: Running for 0:00:00")
+        
+        # Add progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 2px solid grey;
+                border-radius: 5px;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background-color: #4CAF50;
+                width: 10px;
+                margin: 0.5px;
+            }
+        """)
+        
         self.stats_layout.addWidget(self.languages_label, 0, 0, 1, 1)
-        self.stats_layout.addWidget(self.total_label, 0, 1)
+        self.stats_layout.addWidget(self.time_stats_label, 0, 1)
         self.stats_layout.addWidget(self.llm_stats_label, 0, 2)
+        self.stats_layout.addWidget(self.progress_bar, 1, 0, 1, 3)
         
         self.layout.addWidget(self.stats_widget)
 
@@ -239,27 +265,111 @@ class GraphicalUIManager:
         else:
             return QColor(192, 192, 192, 50)  # Gray with alpha
 
+    def _format_timedelta(self, td: timedelta) -> str:
+        """Format timedelta to a readable string without microseconds."""
+        total_seconds = int(td.total_seconds())
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        seconds = total_seconds % 60
+        
+        if hours > 0:
+            return f"{hours}h {minutes}m {seconds}s"
+        elif minutes > 0:
+            return f"{minutes}m {seconds}s"
+        else:
+            return f"{seconds}s"
+
+    def _get_time_since_last_success(self) -> str:
+        """Get formatted time since last successful translation."""
+        if not self.last_successful_translation:
+            return "N/A"
+        time_since = datetime.now() - self.last_successful_translation
+        return self._format_timedelta(time_since)
+
     def _ui_update_statistics(self):
         """Update the statistics display."""
         total = self.overall_stats['total_attempts']
+        total_translations = len(self.translation_entries)
+
         if total > 0:
             success_rate = (self.overall_stats['successful'] / total) * 100
             fail_rate = (self.overall_stats['failed'] / total) * 100
+            
+            # Calculate average translation time (successful translations only)
+            if self.translation_times:
+                avg_time = sum(self.translation_times, timedelta()) / len(self.translation_times)
+            else:
+                avg_time = timedelta()
+            
+            # Include failed and interrupted translations in the average
+            all_times = self.translation_times + self.failed_translation_times + self.interrupted_translations
+            if all_times:
+                overall_avg = sum(all_times, timedelta()) / len(all_times)
+            else:
+                overall_avg = avg_time
+            
+            remaining_translations = total_translations - self.overall_stats['successful']
+            estimated_completion = avg_time * remaining_translations if self.translation_times else timedelta()
         else:
             success_rate = fail_rate = 0.0
-        self.total_label.setText(f"Total Attempts: {total}/{len(self.translation_entries)}, {StatusIcons.SUCCESS} {self.overall_stats['successful']} ({success_rate:.1f}%), {StatusIcons.FAILED} {self.overall_stats['failed']} ({fail_rate:.1f}%)")
+            avg_time = overall_avg = timedelta()
+            estimated_completion = timedelta()
 
+        # Update progress bar
+        if total_translations > 0:
+            progress = (total / total_translations) * 100
+            self.progress_bar.setValue(int(progress))
+            self.progress_bar.setFormat(
+                f"Progress: {progress:.1f}% ({total}/{total_translations}) - "
+                f"{StatusIcons.SUCCESS} {self.overall_stats['successful']} ({success_rate:.1f}%), "
+                f"{StatusIcons.FAILED} {self.overall_stats['failed']} ({fail_rate:.1f}%)"
+            )
+        else:
+            self.progress_bar.setValue(0)
+            self.progress_bar.setFormat("Initializing...")
+
+        # Update time stats with color coding
+        runtime = datetime.now() - self.start_time
+        time_stats = [
+            f"⏱️ <b>Runtime:</b> <font color='#ffffaf'>{self._format_timedelta(runtime)}</font>",
+            f"<b>Last Success:</b> <font color='#90EE90'>{self._get_time_since_last_success()}</font>"
+        ]
+        
+        if total > 0:
+            time_stats.append(f"<b>Avg/Success:</b> <font color='#90EE90'>{self._format_timedelta(avg_time)}</font>")
+            if len(all_times) > len(self.translation_times):
+                time_stats.append(f"<b>Avg/Overall:</b> <font color='#FFB6C1'>{self._format_timedelta(overall_avg)}</font>")
+            
+            if remaining_translations > 0:
+                # Color code estimated completion time based on progress
+                progress = self.overall_stats['successful'] / total_translations
+                if progress > 0.75:
+                    color = '#90EE90'  # Light green
+                elif progress > 0.5:
+                    color = '#FFFFE0'  # Light yellow
+                elif progress > 0.25:
+                    color = '#FFB6C1'  # Light red
+                else:
+                    color = '#FF6B6B'  # Darker red
+                time_stats.append(f"<b>Est. Remaining:</b> <font color='{color}'>{self._format_timedelta(estimated_completion)}</font>")
+        
+        self.time_stats_label.setText(" | ".join(time_stats))
+        
         if self.llm_handler:
             llm_stats = self.llm_handler.get_usage_stats()
             prompt_tokens = llm_stats.get("prompt_tokens", 0)
             completion_tokens = llm_stats.get("completion_tokens", 0)
             total_tokens = llm_stats.get("total_tokens", 0)
             total_cost = llm_stats.get("total_cost", 0)
-            self.llm_stats_label.setText(f"LLM tokens: {total_tokens} ({prompt_tokens} prompt, {completion_tokens} completion), cost: ${total_cost:.6f}")
+            self.llm_stats_label.setText(f"<b>LLM tokens:</b> <font color='#ffffaf'><b>{total_tokens}</b></font> "
+                                       f"(<font color='#ffffaf'><b>{prompt_tokens}</b></font> prompt, "
+                                       f"<font color='#ffffaf'><b>{completion_tokens}</b></font> completion), "
+                                       f"cost: <font color='#ffffaf'><b>${total_cost:.6f}</b></font>")
         else:
-            self.llm_stats_label.setText("LLM: N/A")
+            self.llm_stats_label.setText("<b>LLM:</b> <font color='gray'>N/A</font>")
 
-        self.languages_label.setText(f"📊 Languages: {self.ctx.source_lang} (source), {', '.join(self.ctx.target_langs)} (target)")
+        self.languages_label.setText(f"📊 <b>Languages:</b> <font color='cyan'><b>{self.ctx.source_lang}</b></font> (source) ➜ "
+                                   f"<font color='cyan'><b>{', '.join(self.ctx.target_langs)}</b></font> (target)")
 
     def _ui_update_console(self):
         """Update the status messages display."""
@@ -382,6 +492,12 @@ class GraphicalUIManager:
     def stop(self):
         """Stop the graphical interface."""
         try:
+            # If there's an ongoing translation, mark it as interrupted
+            if self.current_translation_start:
+                translation_time = datetime.now() - self.current_translation_start
+                self.interrupted_translations.append(translation_time)
+                self.current_translation_start = None
+            
             self.should_stop = True
             if self.app:
                 self.app.quit()
@@ -440,14 +556,41 @@ class GraphicalUIManager:
         if total > 0:
             success_rate = (self.overall_stats['successful'] / total) * 100
             fail_rate = (self.overall_stats['failed'] / total) * 100
+            
+            if self.translation_times:
+                avg_success_time = sum(self.translation_times, timedelta()) / len(self.translation_times)
+            else:
+                avg_success_time = timedelta()
+                
+            all_times = self.translation_times + self.failed_translation_times + self.interrupted_translations
+            if len(all_times) > len(self.translation_times):
+                avg_fail_time = sum(self.failed_translation_times, timedelta()) / len(self.failed_translation_times) if self.failed_translation_times else timedelta()
+                avg_interrupt_time = sum(self.interrupted_translations, timedelta()) / len(self.interrupted_translations) if self.interrupted_translations else timedelta()
+                overall_avg = sum(all_times, timedelta()) / len(all_times)
+            else:
+                avg_fail_time = avg_interrupt_time = timedelta()
+                overall_avg = avg_success_time
         else:
             success_rate = fail_rate = 0.0
+            avg_success_time = avg_fail_time = avg_interrupt_time = overall_avg = timedelta()
             
         self.info("\n📊 Overall Translation Statistics")
         self.info("─" * 40)
+        self.info(f"Total Runtime: {self._format_timedelta(datetime.now() - self.start_time)}")
+        if self.last_successful_translation:
+            self.info(f"Time Since Last Success: {self._get_time_since_last_success()}")
+        self.info(f"Average Successful Translation Time: {self._format_timedelta(avg_success_time)}")
+        if self.failed_translation_times:
+            self.info(f"Average Failed Translation Time: {self._format_timedelta(avg_fail_time)}")
+        if self.interrupted_translations:
+            self.info(f"Average Interrupted Translation Time: {self._format_timedelta(avg_interrupt_time)}")
+        if len(all_times) > len(self.translation_times):
+            self.info(f"Overall Average Translation Time: {self._format_timedelta(overall_avg)}")
         self.info(f"Total Translation Attempts: {total}")
         self.info(f"Successful Translations: {self.overall_stats['successful']} ({success_rate:.1f}%)")
         self.info(f"Failed Translations: {self.overall_stats['failed']} ({fail_rate:.1f}%)")
+        if self.interrupted_translations:
+            self.info(f"Interrupted Translations: {len(self.interrupted_translations)}")
 
         if self.llm_handler:
             usage_stats = self.llm_handler.get_usage_stats()
@@ -460,21 +603,38 @@ class GraphicalUIManager:
         self.signals.begin_table_update_signal.emit()
     def _begin_table_update(self):
         """Start table updates."""
+        # Disable sorting and updates before making changes
         self.table.setSortingEnabled(False)
         self.table.setUpdatesEnabled(False)
+        
+        # Block signals and suspend layout updates
         self.table.blockSignals(True)
-        self.table.model().layoutAboutToBeChanged.emit()
-        self.table.model().beginResetModel()
+        self.table.setAutoScroll(False)
+        self.table.horizontalHeader().setUpdatesEnabled(False)
+        self.table.verticalHeader().setUpdatesEnabled(False)
+        
+        # Notify model of upcoming changes
+        model = self.table.model()
+        model.layoutAboutToBeChanged.emit()
+        model.beginResetModel()
 
     def end_table_update(self):
         """Stop table updates."""
         self.signals.end_table_update_signal.emit()
+        
     def _end_table_update(self):
         """Stop table updates."""
+        # Re-enable updates and signals
+        model = self.table.model()
+        model.endResetModel()
+        
         self.table.setUpdatesEnabled(True)
         self.table.blockSignals(False)
-        self.table.model().endResetModel()
-        #self.table.model().layoutChanged.emit()
+        self.table.setAutoScroll(True)
+        self.table.horizontalHeader().setUpdatesEnabled(True) 
+        self.table.verticalHeader().setUpdatesEnabled(True)
+        
+        # Force viewport update and re-enable sorting
         self.table.viewport().update()
         #self.table.setSortingEnabled(True)
 
@@ -516,6 +676,7 @@ class GraphicalUIManager:
 
     def on_translation_started(self, item):
         """Thread-safe add translation entry."""
+        self.current_translation_start = datetime.now()
         self.signals.on_translation_started_signal.emit(item)
     def _on_translation_started(self, item):
         """Internal add translation handler (runs in main thread)."""
@@ -523,6 +684,14 @@ class GraphicalUIManager:
 
     def on_translation_ended(self, item):
         """Thread-safe complete translation."""
+        if self.current_translation_start:
+            translation_time = datetime.now() - self.current_translation_start
+            if item.get("error"):
+                self.failed_translation_times.append(translation_time)
+            else:
+                self.translation_times.append(translation_time)
+                self.last_successful_translation = datetime.now()
+            self.current_translation_start = None
         self.signals.on_translation_ended_signal.emit(item)
     def _on_translation_ended(self, item):
         """Internal complete translation handler (runs in main thread)."""
