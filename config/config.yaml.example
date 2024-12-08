@@ -23,6 +23,9 @@ llm:
 
 qa:
   max_length: 1000  # Maximum length for translations
+  capitalization_check: true  # Check for capitalization mismatch between source and translation
+  newline_check: true  # Check for newline count mismatch between source and translation
+  ending_punctuation_check: true  # Check for ending punctuation mismatch between source and translation
   non_translatable_patterns:  # Terms that must appear exactly the same in translations
     - start: "{["   # Example: {[NUMBER]} must appear exactly as {[NUMBER]} in translation
       end: "]}"

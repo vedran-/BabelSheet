@@ -220,36 +220,69 @@ class QAHandler:
         
         return issues
 
+    def _check_bracket_markup_pair(self, source: str, translation: str, pattern: str, bracket_type: str) -> List[str]:
+        """Check if markup is preserved correctly for a given pattern.
+        
+        Args:
+            source: Source text
+            translation: Translated text 
+            pattern: Regex pattern to match
+            bracket_type: Name of bracket type for error messages
+        """
+        issues = []
+        source_matches = re.findall(pattern, source)
+        trans_matches = re.findall(pattern, translation)
+        
+        if len(source_matches) != len(trans_matches):
+            issues.append(f"{bracket_type} bracket markup count mismatch between source text and translation")
+        else:
+            # Check that each bracket in source matches existing bracket in translation
+            while len(source_matches) > 0:
+                s = source_matches.pop(0)
+                if s in trans_matches:
+                    trans_matches.pop(trans_matches.index(s))
+                else:
+                    issues.append(f"{bracket_type} bracket `{s}` missing from translation")
+                    continue
+            if len(trans_matches) > 0:
+                issues.append(f"{bracket_type} bracket markup for `{'`, `'.join(trans_matches)}` should not be present in translation, as it is not present in source text")
+
+        return issues
+
+
     def _validate_format(self, source: str, translation: str, target_lang: str) -> List[str]:
         """Check format consistency between source and translation."""
         issues = []
 
-        # Check capitalization
-        source_analysis = self._analyze_capitalization(source)
-        translation_analysis = self._analyze_capitalization(translation)
-        if source_analysis['has_all_caps'] is True and translation_analysis['has_all_caps'] is False:
-            issues.append(f"Capitalization mismatch: Words in the translation should be in ALL CAPS, as they are in the source text.")
-        elif source_analysis['has_all_caps'] is False and translation_analysis['has_all_caps'] is True:
-            issues.append(f"Capitalization mismatch: Translation has too many words in ALL CAPS, compared to the source text. Please match the source text's capitalization per word in the translation.")
-        elif source_analysis['has_caps'] is True and translation_analysis['has_caps'] is False \
-            and max(len(word) for word in source_analysis['all_caps_words']) > 2:   # We can ignore words that are 2 characters or less, like I, WC, etc.
-            issues.append(f"Capitalization mismatch: Some words in the translation should be in ALL CAPS, as they are in the source text. Please add ALL CAPS to the words in the translation that are in ALL CAPS in the source text.")
-        elif source_analysis['has_caps'] is False and translation_analysis['has_caps'] is True \
-            and max(len(word) for word in translation_analysis['all_caps_words']) > 2: # We can ignore words that are 2 characters or less, like I, WC, etc.
-            issues.append(f"Capitalization mismatch: Translation has too many words in ALL CAPS, compared to the source text. Please remove ALL CAPS from the words in the translation that are not in ALL CAPS in the source text.")
+        if self.config['qa']['capitalization_check']:
+            # Check capitalization
+            source_analysis = self._analyze_capitalization(source)
+            translation_analysis = self._analyze_capitalization(translation)
+            if source_analysis['has_all_caps'] is True and translation_analysis['has_all_caps'] is False:
+                issues.append(f"Capitalization mismatch: Words in the translation should be in ALL CAPS, as they are in the source text.")
+            elif source_analysis['has_all_caps'] is False and translation_analysis['has_all_caps'] is True:
+                issues.append(f"Capitalization mismatch: Translation has too many words in ALL CAPS, compared to the source text. Please match the source text's capitalization per word in the translation.")
+            elif source_analysis['has_caps'] is True and translation_analysis['has_caps'] is False \
+                and max(len(word) for word in source_analysis['all_caps_words']) > 2:   # We can ignore words that are 2 characters or less, like I, WC, etc.
+                issues.append(f"Capitalization mismatch: Some words in the translation should be in ALL CAPS, as they are in the source text. Please add ALL CAPS to the words in the translation that are in ALL CAPS in the source text.")
+            elif source_analysis['has_caps'] is False and translation_analysis['has_caps'] is True \
+                and max(len(word) for word in translation_analysis['all_caps_words']) > 2: # We can ignore words that are 2 characters or less, like I, WC, etc.
+                issues.append(f"Capitalization mismatch: Translation has too many words in ALL CAPS, compared to the source text. Please remove ALL CAPS from the words in the translation that are not in ALL CAPS in the source text.")
         
         # Check newline preservation using normalized counts, allowing 1 line difference
-        def count_newlines(text: str) -> int:
-            """Count newlines in text, handling both \\n and \n"""
-            return text.count('\\n') + text.count('\n')
-        source_newlines = count_newlines(source)
-        trans_newlines = count_newlines(translation)
-        if abs(source_newlines - trans_newlines) > 1:  # Allow difference of 1
-            issues.append(f"Newline count mismatch between source text ({source_newlines} rows) and translation ({trans_newlines} rows). ")
+        if self.config['qa']['newline_check']:
+            def count_newlines(text: str) -> int:
+                """Count newlines in text, handling both \\n and \n"""
+                return text.count('\\n') + text.count('\n')
+            source_newlines = count_newlines(source)
+            trans_newlines = count_newlines(translation)
+            if abs(source_newlines - trans_newlines) > 1:  # Allow difference of 1
+                issues.append(f"Newline count mismatch between source text ({source_newlines} rows) and translation ({trans_newlines} rows). ")
             
         # Check ending punctuation
-        punctuation_issues = self._validate_ending_punctuation(source, translation)
-        issues.extend(punctuation_issues)
+        if self.config['qa']['ending_punctuation_check']:
+            punctuation_issues = self._validate_ending_punctuation(source, translation)
+            issues.extend(punctuation_issues)
             
         return issues
     
@@ -266,35 +299,11 @@ class QAHandler:
                 elif translation.count(term) != source.count(term):
                     issues.append(f"Non-translatable term `{term}` appears {translation.count(term)} times in translation, but {source.count(term)} times in source text.")
         
-        # Check square brackets
-        source_brackets = re.findall(r'\[.*?\]', source)
-        trans_brackets = re.findall(r'\[.*?\]', translation)
-        if len(source_brackets) != len(trans_brackets):
-            issues.append(f"Square bracket markup count mismatch between source text and translation")
-        else:
-            for s, t in zip(source_brackets, trans_brackets):
-                if s != t:
-                    issues.append(f"Square bracket content modified: `{s}` -> `{t}` between source text and translation")
-        
-        # Check curly braces
-        source_braces = re.findall(r'\{.*?\}', source)
-        trans_braces = re.findall(r'\{.*?\}', translation)
-        if len(source_braces) != len(trans_braces):
-            issues.append(f"Curly brace markup count mismatch between source text and translation")
-        else:
-            for s, t in zip(source_braces, trans_braces):
-                if s != t:
-                    issues.append(f"Curly brace content modified: `{s}` -> `{t}` between source text and translation")
-        
-        # Check < and >
-        source_angle_brackets = re.findall(r'<.*?>', source)
-        trans_angle_brackets = re.findall(r'<.*?>', translation)
-        if len(source_angle_brackets) != len(trans_angle_brackets):
-            issues.append(f"Angle bracket markup count mismatch between source ({source}) and translation ({translation})")
-        else:
-            for s, t in zip(source_angle_brackets, trans_angle_brackets):
-                if s != t:
-                    issues.append(f"Angle bracket content modified: `{s}` -> `{t}` between source text and translation")
+
+        # Check all bracket types
+        issues.extend(self._check_bracket_markup_pair(source, translation, r'\[.*?\]', "Square"))
+        issues.extend(self._check_bracket_markup_pair(source, translation, r'\{.*?\}', "Curly brace"))
+        issues.extend(self._check_bracket_markup_pair(source, translation, r'<.*?>', "Angle"))
 
         return issues
     

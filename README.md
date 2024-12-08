@@ -132,6 +132,9 @@ llm:
 qa:
   max_length: 4000  # Maximum translated text length
   use_override: false # Translation LLM can override previously failed validation. Sometimes this can fix some issues, but sometimes it can make it worse. (default: false)
+  capitalization_check: true  # Check for capitalization mismatch between source and translation
+  newline_check: true  # Check for newline count mismatch between source and translation
+  ending_punctuation_check: true  # Check for ending punctuation mismatch between source and translation
   non_translatable_patterns:
     - start: "{["   # Matches {[TERM]}
       end: "]}"
