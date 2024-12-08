@@ -142,6 +142,7 @@ qa:
   capitalization_check: true  # Check for capitalization mismatch between source and translation
   newline_check: true  # Check for newline count mismatch between source and translation
   ending_punctuation_check: true  # Check for ending punctuation mismatch between source and translation
+  remove_html_tags_before_validation: true  # Remove HTML tags before validation
   non_translatable_patterns:
     - start: "{["   # Matches {[TERM]}
       end: "]}"

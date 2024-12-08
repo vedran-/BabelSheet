@@ -162,13 +162,13 @@ class GraphicalUIManager:
                 self.logger.warning(f"Icon file not found at {icon_path}")
         except Exception as e:
             self.logger.error(f"Failed to set window icon: {e}")
-
     def _setup_stats_panel(self):
         """Setup the statistics panel."""
         self.stats_widget = QWidget()
         self.stats_layout = QGridLayout(self.stats_widget)
         
         self.llm_stats_label = QLabel("LLM Stats: 0 tokens, $0.00")
+        self.llm_stats_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.languages_label = QLabel("📊 Languages: 'en' (source), 'es' (target)")
         self.time_stats_label = QLabel("⏱️ Time Stats: Running for 0:00:00")
         
@@ -194,7 +194,6 @@ class GraphicalUIManager:
         self.stats_layout.addWidget(self.progress_bar, 1, 0, 1, 3)
         
         self.layout.addWidget(self.stats_widget)
-
     def _setup_translation_table(self):
         """Setup the translation progress table."""
         self.table = QTableWidget()
@@ -220,7 +219,6 @@ class GraphicalUIManager:
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         
         self.layout.addWidget(self.table)
-
     def _setup_status_panel(self):
         """Setup the status messages panel."""
         self.status_text = QTextEdit()
@@ -331,28 +329,10 @@ class GraphicalUIManager:
         # Update time stats with color coding
         runtime = datetime.now() - self.start_time
         time_stats = [
-            f"⏱️ <b>Runtime:</b> <font color='#ffffaf'>{self._format_timedelta(runtime)}</font>",
-            f"<b>Last Success:</b> <font color='#90EE90'>{self._get_time_since_last_success()}</font>"
+            f"⏱️ <b>Runtime:</b> <font color='#ffffaf'>{self._format_timedelta(runtime)}</font>"
         ]
-        
-        if total > 0:
-            time_stats.append(f"<b>Avg/Success:</b> <font color='#90EE90'>{self._format_timedelta(avg_time)}</font>")
-            if len(all_times) > len(self.translation_times):
-                time_stats.append(f"<b>Avg/Overall:</b> <font color='#FFB6C1'>{self._format_timedelta(overall_avg)}</font>")
-            
-            if remaining_translations > 0:
-                # Color code estimated completion time based on progress
-                progress = self.overall_stats['successful'] / total_translations
-                if progress > 0.75:
-                    color = '#90EE90'  # Light green
-                elif progress > 0.5:
-                    color = '#FFFFE0'  # Light yellow
-                elif progress > 0.25:
-                    color = '#FFB6C1'  # Light red
-                else:
-                    color = '#FF6B6B'  # Darker red
-                time_stats.append(f"<b>Est. Remaining:</b> <font color='{color}'>{self._format_timedelta(estimated_completion)}</font>")
-        
+        if total > 0 and remaining_translations > 0:
+            time_stats.append(f"<b>ETA:</b> <font color='#ffffaf'>{self._format_timedelta(estimated_completion)}</font>")
         self.time_stats_label.setText(" | ".join(time_stats))
         
         if self.llm_handler:
@@ -621,7 +601,6 @@ class GraphicalUIManager:
     def end_table_update(self):
         """Stop table updates."""
         self.signals.end_table_update_signal.emit()
-        
     def _end_table_update(self):
         """Stop table updates."""
         # Re-enable updates and signals
@@ -631,8 +610,8 @@ class GraphicalUIManager:
         self.table.setUpdatesEnabled(True)
         self.table.blockSignals(False)
         self.table.setAutoScroll(True)
-        self.table.horizontalHeader().setUpdatesEnabled(True) 
-        self.table.verticalHeader().setUpdatesEnabled(True)
+        #self.table.horizontalHeader().setUpdatesEnabled(True) 
+        #self.table.verticalHeader().setUpdatesEnabled(True)
         
         # Force viewport update and re-enable sorting
         self.table.viewport().update()
