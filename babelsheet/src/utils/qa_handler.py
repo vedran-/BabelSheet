@@ -7,10 +7,13 @@ import logging
 import json
 import asyncio
 import spacy
+import unicodedata
+
+DETECT_CASE_DISTINCTION_TESTS = 5
 
 class QAHandler:
     def __init__(self,
-                 config: Dict[str, Any],
+                 ctx,
                  llm_handler: Optional[LLMHandler] = None, 
                  ui: Optional[UIManager] = None,
                  translation_dictionary: Optional[TranslationDictionary] = None,
@@ -23,12 +26,14 @@ class QAHandler:
             non_translatable_patterns: List of pattern dicts with 'start' and 'end' keys
             translation_dictionary: TranslationDictionary instance
         """
-        self.config = config
+        self.ctx = ctx
+        self.config = ctx.config
         self.max_length = self.config.get('qa', {}).get('max_length', 1000)
         self.llm_handler = llm_handler
         self.logger = logging.getLogger(__name__)
         self.ui = ui
         self.translation_dictionary = translation_dictionary
+        self.language_case_distinction = {}
 
         # Validate and compile patterns if provided
         self.non_translatable_patterns = non_translatable_patterns
@@ -142,7 +147,7 @@ class QAHandler:
         n['has_caps'] = len(n['all_caps_words']) > 0
         # Check if more than 70% of the words are in ALL CAPS
         total_usable_words = len(n['all_caps_words']) + len(n['non_all_caps_words'])
-        n['has_all_caps'] = len(n['all_caps_words']) / total_usable_words > 0.7
+        n['has_all_caps'] = len(n['all_caps_words']) / total_usable_words > 0.7 if total_usable_words > 0 else False
         return n
 
     @staticmethod
@@ -223,6 +228,71 @@ class QAHandler:
         
         return issues
 
+    def _has_case_distinction(self, language_code: str, text: str) -> bool:
+        """Determine if the text's writing system supports case distinction.
+        This is used to automatically detect if language support alphabetical case distinction.
+    
+        Args:
+            language_code: Language code of the text
+            text: Text to analyze
+            
+        Returns:
+            bool: False if the writing system doesn't support case distinction
+        """
+
+        cached_result = self.language_case_distinction.get(language_code, {
+            'tests': 0,
+            'has_case_distinction': True
+        })
+        if cached_result['tests'] >= DETECT_CASE_DISTINCTION_TESTS:
+            return cached_result['has_case_distinction']
+
+        if language_code in self.language_case_distinction:
+            return self.language_case_distinction[language_code]
+
+        # Skip empty text
+        if not text.strip():
+            return False
+        
+        # Get the script of the first few characters (ignoring spaces and punctuation)
+        scripts = set()
+        for char in text[:100]:  # Sample first 100 chars for performance
+            if char.isspace() or unicodedata.category(char).startswith('P'):
+                continue
+            try:
+                # Get the script name from Unicode data
+                char_name = unicodedata.name(char)
+                script = char_name.split()[0]
+                scripts.add(script)
+            except ValueError:
+                continue
+            
+        # Scripts that don't support case distinction
+        non_case_scripts = {
+            'CJK', 'HIRAGANA', 'KATAKANA', 'HANGUL', 
+            'ARABIC', 'HEBREW', 'THAI', 'DEVANAGARI',
+            'BENGALI', 'GUJARATI', 'GURMUKHI', 'KANNADA',
+            'MALAYALAM', 'ORIYA', 'TAMIL', 'TELUGU',
+            'LAO', 'TIBETAN', 'MYANMAR'
+        }
+        
+        # If any of the detected scripts don't support case distinction, return False
+        has_non_case_script = bool(scripts & non_case_scripts)
+        self.ui.info(f"<b>Language <font color='cyan'>{language_code}</font> {'does' if not has_non_case_script else 'does NOT'} have case (uppercase/lowercase) distinction</b>")
+
+        # We need to detect just once that the language doesn't have case distinction
+        if has_non_case_script:
+            cached_result['has_case_distinction'] = False
+            cached_result['tests'] = DETECT_CASE_DISTINCTION_TESTS
+        else:
+            cached_result['has_case_distinction'] = cached_result['has_case_distinction'] and True
+            cached_result['tests'] = cached_result['tests'] + 1
+
+        self.language_case_distinction[language_code] = cached_result
+
+        return not has_non_case_script
+    
+
     def _check_bracket_markup_pair(self, source: str, translation: str, pattern: str, bracket_type: str) -> List[str]:
         """Check if markup is preserved correctly for a given pattern.
         
@@ -260,7 +330,10 @@ class QAHandler:
             source = self._remove_html_tags(source)
             translation = self._remove_html_tags(translation)
 
-        if self.config['qa'].get('capitalization_check', True):
+        # Automatically detect if both languages have alphabetical case distinction
+        has_case_distinction = self._has_case_distinction(target_lang, translation) and self._has_case_distinction(self.ctx.source_lang, source)
+
+        if has_case_distinction and self.config['qa'].get('capitalization_check', True):
             # Check capitalization
             source_analysis = self._analyze_capitalization(source)
             translation_analysis = self._analyze_capitalization(translation)
@@ -648,4 +721,4 @@ class QAHandler:
             # findall returns tuples if we have groups, so we need to get first element
             terms.extend(m[0] if isinstance(m, tuple) else m for m in matches)
         return terms
-    
+   

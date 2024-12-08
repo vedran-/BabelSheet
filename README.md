@@ -32,6 +32,7 @@ BabelSheet is an automated translation tool that leverages AI to deliver high-qu
   - Parallel validation processing
   - Non-translatable terms protection
   - Automatic validation retries
+  - Automatically detect if languages have alphabetical case distinction, which is used to improve translations
   - Detailed error logging
 - Efficient Processing
   - Smart batching system

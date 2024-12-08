@@ -17,11 +17,12 @@ from .translation_dictionary import TranslationDictionary
 logger = logging.getLogger(__name__)
 
 class TranslationManager:
-    def __init__(self, config: Dict, sheets_handler: SheetsHandler, qa_handler: QAHandler,
+    def __init__(self, ctx, sheets_handler: SheetsHandler, qa_handler: QAHandler,
                  term_base_handler: TermBaseHandler, llm_handler: LLMHandler, 
                  ui: UIManager, translation_dictionary: TranslationDictionary):
         """Initialize Translation Manager."""
-        self.config = config
+        self.ctx = ctx
+        self.config = ctx.config
         self.llm_handler = llm_handler
         self.logger = logging.getLogger(__name__)
         self.qa_handler = qa_handler
@@ -31,10 +32,10 @@ class TranslationManager:
         self.translation_dictionary = translation_dictionary
         
         # Initialize Translation Prompts
-        self.translation_prompts = TranslationPrompts(config, qa_handler, translation_dictionary)
+        self.translation_prompts = TranslationPrompts(self.config, qa_handler, translation_dictionary)
         
         # Get batch configuration
-        llm_config = config.get('llm', {})
+        llm_config = self.config.get('llm', {})
         self.batch_size = llm_config.get('batch_size', 10)
         self.batch_delay = llm_config.get('batch_delay', 1)
         self.max_retries = llm_config.get('max_retries', 3)
@@ -51,7 +52,7 @@ class TranslationManager:
         }
         
         # Setup translation logging
-        output_config = config.get('output', {})
+        output_config = self.config.get('output', {})
         self.output_dir = pathlib.Path(output_config.get('dir', 'translation_logs'))
         self._setup_translation_logging()
 
@@ -395,7 +396,7 @@ class TranslationManager:
         skipped_items = []
         
         total_items = sum(len(items) for items in missing_translations.values())
-        source_lang = self.config['languages']['source']
+        source_lang = self.ctx.source_lang
         
         self.ui.debug(f"Starting batch translation for {len(missing_translations)} languages ({total_items} items total)")
         self.ui.set_translation_list(missing_translations)

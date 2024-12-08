@@ -46,7 +46,11 @@ class TermBaseHandler:
             if i == 0:
                 continue
 
-            term = row[self.term_column_index].value
+            cell = row[self.term_column_index]
+            if cell is None or cell.is_empty():
+                continue
+
+            term = cell.value
 
             translation = row[lang_column_index].value
             if pd.isna(translation):

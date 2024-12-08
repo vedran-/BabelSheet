@@ -551,6 +551,7 @@ class GraphicalUIManager:
                 avg_fail_time = avg_interrupt_time = timedelta()
                 overall_avg = avg_success_time
         else:
+            all_times = []
             success_rate = fail_rate = 0.0
             avg_success_time = avg_fail_time = avg_interrupt_time = overall_avg = timedelta()
             
