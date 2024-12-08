@@ -124,8 +124,15 @@ class QAHandler:
                        .replace('\\"', '"')
                        .replace("\\'", "'"))
         return [token.text for token in doc if not token.is_space]
-    def _analyze_capitalization(self, text: str ) -> Dict[str, List[str]]:
+    def _analyze_capitalization(self, text: str) -> Dict[str, List[str]]:
         n = {}
+
+        if self.patterns:
+            non_translatable_terms = self.extract_non_translatable_terms(text)
+            # Remove non-translatable terms from the text, as they don't count towards capitalization
+            for term in non_translatable_terms:
+                text = text.replace(term, '')
+
         n['words'] = self._extract_words(text)
         n['all_caps_words'] = [word for word in n['words'] if len(word) > 1 and word.isupper()]
         n['non_all_caps_words'] = [word for word in n['words'] if len(word) > 1 and not word.isupper()]
