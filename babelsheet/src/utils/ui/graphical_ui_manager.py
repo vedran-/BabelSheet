@@ -162,11 +162,10 @@ class GraphicalUIManager:
         
         self.total_label = QLabel("Total Attempts: 0")
         self.llm_stats_label = QLabel("LLM Stats: 0 tokens, $0.00")
-        self.languages_label = QLabel("Languages: 'en' (source), 'es' (target)")
-        self.stats_layout.addWidget(QLabel("📊 Statistics"), 0, 0, 1, 1)
-        self.stats_layout.addWidget(self.languages_label, 0, 1)
-        self.stats_layout.addWidget(self.total_label, 0, 2)
-        self.stats_layout.addWidget(self.llm_stats_label, 0, 3)
+        self.languages_label = QLabel("📊 Languages: 'en' (source), 'es' (target)")
+        self.stats_layout.addWidget(self.languages_label, 0, 0, 1, 1)
+        self.stats_layout.addWidget(self.total_label, 0, 1)
+        self.stats_layout.addWidget(self.llm_stats_label, 0, 2)
         
         self.layout.addWidget(self.stats_widget)
 
@@ -260,7 +259,7 @@ class GraphicalUIManager:
         else:
             self.llm_stats_label.setText("LLM: N/A")
 
-        self.languages_label.setText(f"Languages: {self.ctx.source_lang} (source), {', '.join(self.ctx.target_langs)} (target)")
+        self.languages_label.setText(f"📊 Languages: {self.ctx.source_lang} (source), {', '.join(self.ctx.target_langs)} (target)")
 
     def _ui_update_console(self):
         """Update the status messages display."""

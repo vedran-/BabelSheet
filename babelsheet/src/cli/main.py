@@ -7,6 +7,7 @@ import threading
 import queue
 import traceback
 from typing import Dict, Any, List
+from datetime import datetime
 from ..utils.auth import get_credentials
 from ..utils.llm_handler import LLMHandler
 from ..utils.qa_handler import QAHandler
@@ -147,6 +148,9 @@ def cli(ctx, config):
 def translate_command(ctx, target_langs, sheet_id, verbose, simple_output):
     """Translate missing entries in the specified Google Sheet."""
     setup_logging(verbose)
+
+    # Start timing
+    ctx.start_time = datetime.now()
 
     # Update config with CLI sheet_id if provided
     if sheet_id:

@@ -337,6 +337,14 @@ class TranslationManager:
         # Save all changes
         self.sheets_handler.save_changes()
 
+        # Calculate and display total execution time
+        end_time = datetime.now()
+        start_time = getattr(self.ui.ctx, 'start_time', None)
+        if start_time:
+            execution_time = end_time - start_time
+            self.ui.info(f"\nTranslation completed at <b><font color='cyan'>{end_time.strftime('%H:%M:%S')}</font></b>")
+            self.ui.info(f"Total execution time: <b><font color='cyan'>{execution_time}</font></b>")
+
     def get_next_batch(self, missing_translations: Dict[str, List[Dict[str, Any]]]) \
             -> Tuple[str, List[Dict[str, Any]]]:
         """Get the next batch of missing translations."""

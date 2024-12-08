@@ -496,7 +496,7 @@ class QAHandler:
                 json_schema=validation_schema
             )
         except Exception as e:
-            self.logger.error(f"LLM API call failed: {str(e)}, sleeping for 3 minutes before retrying...")
+            self.ui.error(f"LLM API call failed: {str(e)}, sleeping for 3 minutes before retrying...")
             await asyncio.sleep(180)
             return await self.validate_with_llm_batch(items, target_lang, term_base)
 
