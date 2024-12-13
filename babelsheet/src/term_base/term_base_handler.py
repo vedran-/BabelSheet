@@ -15,7 +15,7 @@ class TermBaseHandler:
         self.logger = logging.getLogger(__name__)
         self.ui = ctx.ui
         self.load_term_base()
-        
+
     def load_term_base(self) -> None:
         """Load the term base from the Google Sheet."""
         self.logger.info(f"Loading term base from sheet: {self.sheet_name}")

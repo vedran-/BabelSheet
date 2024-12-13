@@ -355,7 +355,6 @@ class TranslationManager:
                 missing_translations.pop(lang)
                 continue
 
-
             added_translations = []
             batch = []
             item_idx = 0
@@ -772,7 +771,7 @@ class TranslationManager:
             List of tuples containing (translated_text, issues) for each input text
         """
 
-        term_base = self.term_base_handler.get_terms_for_language(target_lang) if use_term_base else None
+        term_base = self.term_base_handler.get_terms_for_language(target_lang) if use_term_base and self.term_base_handler else None
 
         # Get translations from LLM
         result = await self._get_llm_translations(

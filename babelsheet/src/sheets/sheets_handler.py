@@ -155,6 +155,10 @@ class SheetsHandler:
         """Modify a cell data in memory"""
         if sheet_name not in self._sheets:
             raise ValueError(f"Sheet {sheet_name} not loaded")
+        
+        if self.ctx.config['translation'].get('convert_space_before_interpunction_to_nbsp', True):
+            from ..translation.interpunction_handler import InterpunctionHandler
+            value = InterpunctionHandler.fix_interpunction_spacing(value)
 
         cell = self._sheets[sheet_name].iloc[row, col]
         if cell is None:
@@ -211,6 +215,7 @@ class SheetsHandler:
         column_indexes = []
         
         for col_name in column_names:
+            original_col_name = col_name
             try:
                 if ignore_case:
                     col_name = col_name.lower()
@@ -228,7 +233,7 @@ class SheetsHandler:
                     
             except ValueError:
                 if create_if_missing:
-                    col_idx = self.add_new_column(sheet_data, col_name)
+                    col_idx = self.add_new_column(sheet_data, original_col_name)
                 else:
                     continue
             column_indexes.append(col_idx)

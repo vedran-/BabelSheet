@@ -1,8 +1,7 @@
 import re
-import logging
-from typing import Dict, List
+from typing import List
 import pandas as pd
-from ..sheets.sheets_handler import SheetsHandler, CellData
+from ..sheets.sheets_handler import SheetsHandler
 from ..utils.ui.base_ui_manager import UIManager
 
 class InterpunctionHandler:
@@ -50,8 +49,8 @@ class InterpunctionHandler:
                 text = cell.value if hasattr(cell, 'value') else str(cell)
                 
                 # Fix spacing before interpunction marks
-                fixed_text = self.fix_interpunction_spacing(text)
-                
+                fixed_text = InterpunctionHandler.fix_interpunction_spacing(text)
+
                 # If text was changed, update the cell
                 if fixed_text != text:
                     self.sheets_handler.modify_cell_data(sheet_name, row_idx, lang_idx, fixed_text)
@@ -67,7 +66,8 @@ class InterpunctionHandler:
             
         return fixes_made
 
-    def fix_interpunction_spacing(self, text: str) -> str:
+    @staticmethod
+    def fix_interpunction_spacing(text: str) -> str:
         """Fix spaces before interpunction marks in the given text.
         
         Args:

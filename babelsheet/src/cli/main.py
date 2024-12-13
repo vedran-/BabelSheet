@@ -41,9 +41,6 @@ def validate_config(config):
             'source': str,
             'target': list
         },
-        'term_base': {
-            'sheet_name': str
-        },
         'context_columns': {
             'patterns': list,
             'ignore_case': bool
@@ -262,8 +259,11 @@ async def translate(ctx, target_langs, verbose):
         ctx.translation_dictionary.initialize_from_sheets()
 
         # Initialize TermBaseHandler
-        ctx.term_base_handler = TermBaseHandler(ctx)
-        logger.debug(f"Successfully initialized Term Base handler with sheet: {ctx.term_base_handler.sheet_name}")
+        if ctx.config.get('term_base', {}).get('sheet_name'):
+            ctx.term_base_handler = TermBaseHandler(ctx)
+            logger.debug(f"Successfully initialized Term Base handler with sheet: {ctx.term_base_handler.sheet_name}")
+        else:
+            ctx.term_base_handler = None
 
         # Initialize TranslationManager with the config and handlers
         translation_manager = TranslationManager(

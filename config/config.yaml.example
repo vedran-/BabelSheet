@@ -10,6 +10,9 @@ languages:
   source: "en"                # Source language code
   target: ["es", "fr", "de"]  # Default target languages if not specified via CLI
 
+translation:
+  convert_space_before_interpunction_to_nbsp: true
+
 llm:
   api_key: ""  # Set via LLM_API_KEY environment variable
   model: "anthropic/claude-3-5-sonnet-20241022"    # The LLM model to use (e.g., "gpt-4", "claude-3-5-sonnet-20241022")

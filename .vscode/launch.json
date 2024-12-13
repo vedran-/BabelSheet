@@ -20,7 +20,7 @@
             ]
         },
         {
-            "name": "Python: BabelSheet Module (SA2)",
+            "name": "Python: BabelSheet Module (Translation)",
             "type": "debugpy",
             "request": "launch",
             "module": "babelsheet",
@@ -37,7 +37,24 @@
             ]
         },
         {
-            "name": "Python: BabelSheet Module (SA2 - fix spacing)",
+            "name": "Python: BabelSheet Module (Translation-Names)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "babelsheet",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "LOG_LEVEL": "INFO"
+            },
+            "args": [
+                "translate",
+                "--target-langs",
+                "Name ES,Name FR,Name IT,Name DE,Name PT,Name RU,Name JA,Name KO,Name ID,Name SL,Name HR,Name ZH"
+            ]
+        },
+        {
+            "name": "Python: BabelSheet Module (Check spacing)",
             "type": "debugpy",
             "request": "launch",
             "module": "babelsheet",
@@ -50,8 +67,7 @@
             "args": [
                 "check-spacing",
                 "--target-langs",
-                "es,ru,hr,sl,fr,it,de,pt,jp,ko,id,zh",
-                "--dry-run"
+                "es,ru,hr,sl,fr,it,de,pt,jp,ko,id,zh"
             ]
         },
         {
