@@ -1,3 +1,4 @@
+import pathlib
 import sys
 import asyncio
 import click
@@ -364,7 +365,8 @@ async def check_spacing(ctx, target_langs, verbose):
         ctx.sheets_handler.initialize()
 
         # Initialize Interpunction Handler
-        interpunction_handler = InterpunctionHandler(ctx.sheets_handler, ctx.ui)
+        log_output_dir = pathlib.Path(ctx.config.get('output', {}).get('dir', 'translation_logs'))
+        interpunction_handler = InterpunctionHandler(ctx.sheets_handler, ctx.ui, log_output_dir)
 
         # Get all sheet names
         sheet_names = ctx.sheets_handler.get_sheet_names()

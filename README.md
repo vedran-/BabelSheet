@@ -127,7 +127,20 @@ google_sheets:
 languages:
   source: "en"                # Source language code
   target: ["es", "fr", "de"]  # Default target languages if not specified via CLI
-  
+
+translation:
+  # Convert space before interpunction to non-breaking space (default: true)
+  # Useful for e.g. French language, where most interpunction marks have to be preceeded by a space,
+  # so that the word before interpunction is joined with the interpunction mark and displayed as a single word.
+  convert_space_before_interpunction_to_nbsp: true
+
+  # Non-Breaking Space Before Interpunction Mode of operation ('unicode', 'html', 'nobr', 'space')
+  # 'unicode': Replace space with unicode non-breaking space
+  # 'html': Replace space with <nbsp> HTML tag
+  # 'nobr': Wrap space and interpunction with <nobr></nobr> tag
+  # 'space': Use regular space (no transformation)
+  space_to_nbsp_mode: "nobr"
+
 llm:
   api_key: ""       # Your API key for the LLM provider, if needed
   model: "anthropic/claude-3-5-sonnet-20241022"    # The LLM model to use (e.g., "gpt-4", "claude-3-5-sonnet-20241022")

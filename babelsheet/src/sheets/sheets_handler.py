@@ -101,7 +101,7 @@ class SheetsHandler:
             if not updates:
                 #logger.debug(f"No changes to sync for sheet: {sheet_name}")
                 continue
-                
+
             logger.debug(f"Syncing {len(updates)} changes in sheet `{sheet_name}`: {updates}")
 
             # Convert to batch request format
@@ -156,9 +156,10 @@ class SheetsHandler:
         if sheet_name not in self._sheets:
             raise ValueError(f"Sheet {sheet_name} not loaded")
         
-        if self.ctx.config['translation'].get('convert_space_before_interpunction_to_nbsp', True):
+        if self.ctx.config.get('translation', {}).get('convert_space_before_interpunction_to_nbsp', True):
             from ..translation.interpunction_handler import InterpunctionHandler
-            value = InterpunctionHandler.fix_interpunction_spacing(value)
+            nbsp_mode = self.ctx.config.get('translation', {}).get('space_to_nbsp_mode', 'nobr')
+            value = InterpunctionHandler.fix_interpunction_spacing(value, nbsp_mode)
 
         cell = self._sheets[sheet_name].iloc[row, col]
         if cell is None:

@@ -1,0 +1,6 @@
+
+- When updating documentation, make sure to update all relevant files:
+    - README.md
+    - config/config.yaml
+    - config/config.example.yaml
+

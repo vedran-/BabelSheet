@@ -2,24 +2,6 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: BabelSheet Module",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "babelsheet",
-            "console": "integratedTerminal",
-            "justMyCode": true,
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}",
-                "LOG_LEVEL": "DEBUG"
-            },
-            "args": [
-                "translate",
-                "--target-langs",
-                "es,hr,fr,Turkish",
-                "-v"
-            ]
-        },
-        {
             "name": "Python: BabelSheet Module (Translation)",
             "type": "debugpy",
             "request": "launch",
@@ -33,24 +15,7 @@
             "args": [
                 "translate",
                 "--target-langs",
-                "es,ru,hr,sl,fr,it,de,pt,jp,ko,id,zh"
-            ]
-        },
-        {
-            "name": "Python: BabelSheet Module (Translation-Names)",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "babelsheet",
-            "console": "integratedTerminal",
-            "justMyCode": true,
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}",
-                "LOG_LEVEL": "INFO"
-            },
-            "args": [
-                "translate",
-                "--target-langs",
-                "Name ES,Name FR,Name IT,Name DE,Name PT,Name RU,Name JA,Name KO,Name ID,Name SL,Name HR,Name ZH"
+                "es,ru,fr,it,de,pt,jp,ko,id"
             ]
         },
         {
@@ -67,7 +32,8 @@
             "args": [
                 "check-spacing",
                 "--target-langs",
-                "es,ru,hr,sl,fr,it,de,pt,jp,ko,id,zh"
+                "es,ru,hr,sl,fr,it,de,pt,jp,ko,id,zh",
+                "--dry-run"
             ]
         },
         {
