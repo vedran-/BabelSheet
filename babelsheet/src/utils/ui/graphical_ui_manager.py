@@ -348,8 +348,12 @@ class GraphicalUIManager:
         else:
             self.llm_stats_label.setText("<b>LLM:</b> <font color='gray'>N/A</font>")
 
-        self.languages_label.setText(f"📊 <b>Languages:</b> <font color='cyan'><b>{self.ctx.source_lang}</b></font> (source) ➜ "
+        if hasattr(self.ctx, 'source_lang') and self.ctx.source_lang:
+            self.languages_label.setText(f"📊 <b>Translating from:</b> <font color='cyan'><b>{self.ctx.source_lang}</b></font> ➜ "
                                    f"<font color='cyan'><b>{', '.join(self.ctx.target_langs)}</b></font> (target)")
+        else:
+            # Possible icons: 🔍 (magnifying glass), ⚡ (lightning), 🔧 (wrench), ⚙️ (gear), 📝 (memo), ✨ (sparkles)
+            self.languages_label.setText(f"🔍 <b>Checking spacing for:</b> <font color='cyan'><b>{', '.join(self.ctx.target_langs)}</b></font> (target)")
 
     def _ui_update_console(self):
         """Update the status messages display."""
@@ -495,7 +499,8 @@ class GraphicalUIManager:
         self.signals.debug_signal.emit(message)
     def _debug(self, message: str):
         """Internal debug handler (runs in main thread)."""
-        self.status_messages.append(f"[DEBUG] {message}")
+        runtime = datetime.now() - self.start_time
+        self.status_messages.append(f"[{runtime}:DEBUG] {message}")
         self._ui_update_console()
 
     def info(self, message: str):
@@ -503,7 +508,8 @@ class GraphicalUIManager:
         self.signals.info_signal.emit(message)
     def _info(self, message: str):
         """Internal info handler (runs in main thread)."""
-        self.status_messages.append(f"[INFO] {message}")
+        runtime = datetime.now() - self.start_time
+        self.status_messages.append(f"[{runtime}:INFO] {message}")
         self._ui_update_console()
 
     def warning(self, message: str):
@@ -511,7 +517,8 @@ class GraphicalUIManager:
         self.signals.warning_signal.emit(message)
     def _warning(self, message: str):
         """Internal warning handler (runs in main thread)."""
-        self.status_messages.append(f"[WARNING] {message}")
+        runtime = datetime.now() - self.start_time
+        self.status_messages.append(f"[{runtime}:WARNING] {message}")
         self._ui_update_console()
 
     def error(self, message: str):
@@ -519,7 +526,8 @@ class GraphicalUIManager:
         self.signals.error_signal.emit(message)
     def _error(self, message: str):
         """Internal error handler (runs in main thread)."""
-        self.status_messages.append(f"[ERROR] {message}")
+        runtime = datetime.now() - self.start_time
+        self.status_messages.append(f"[{runtime}:ERROR] {message}")
         self._ui_update_console()
 
     def critical(self, message: str):
@@ -527,7 +535,8 @@ class GraphicalUIManager:
         self.signals.critical_signal.emit(message)
     def _critical(self, message: str):
         """Internal critical handler (runs in main thread)."""
-        self.status_messages.append(f"[CRITICAL] {message}")
+        runtime = datetime.now() - self.start_time
+        self.status_messages.append(f"[{runtime}:CRITICAL] {message}")
         self._ui_update_console()
 
     def print_overall_stats(self):

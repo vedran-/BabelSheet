@@ -94,6 +94,7 @@ class SheetsHandler:
             raise ValueError("No spreadsheet loaded")
 
         logger.debug("Saving unsynced changes to Google Sheets")
+        run_type = 'DRY RUN' if self.ctx.dry_run else 'SYNC'
 
         for sheet_name, sheet_data in self._sheets.items():
             updates = self.get_unsynced_cells(sheet_data)
@@ -118,22 +119,26 @@ class SheetsHandler:
             }
 
             try:
-                result = self.service.spreadsheets().values().batchUpdate(
-                    spreadsheetId=self.current_spreadsheet_id,
-                    body=body
-                ).execute()
+                if self.ctx.dry_run:
+                    updated_cells = len(updates)
+                else:
+                    result = self.service.spreadsheets().values().batchUpdate(
+                        spreadsheetId=self.current_spreadsheet_id,
+                        body=body
+                    ).execute()
+                    updated_cells = result.get('totalUpdatedCells', 0)
                 
-                if 'totalUpdatedCells' in result:
+                if updated_cells > 0:
                     # Mark cells as synced
                     for cell_ref, cell in updates.items():
                         cell.is_synced = True
 
-                    logger.info(f"[SYNC] Synced {result['totalUpdatedCells']} cells in {sheet_name}: {updates}")
+                    logger.info(f"[{run_type}] Synced {updated_cells} cells in {sheet_name}: {updates}")
                 else:
-                    logger.critical(f"[SYNC] Update completed but no cell count returned for {sheet_name}")
+                    logger.critical(f"[{run_type}] Update completed but no cell count returned for {sheet_name}")
                     
             except Exception as e:
-                logger.error(f"Error syncing changes for sheet {sheet_name}: {str(e)}")
+                logger.error(f"[{run_type}] Error syncing changes for sheet {sheet_name}: {str(e)}")
                 raise
 
     def get_unsynced_cells(self, sheet_data: pd.DataFrame) -> Dict[str, Any]:

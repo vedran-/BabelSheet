@@ -15,6 +15,7 @@ BabelSheet is an automated translation tool that leverages AI to deliver high-qu
   - Automated column management
   - Real-time updates
   - Batch processing with configurable size
+  - Dry run mode for testing changes
 - Advanced Translation Capabilities
   - AI-powered translations with context awareness
   - Support for multiple LLM providers via LiteLLM:
@@ -26,6 +27,7 @@ BabelSheet is an automated translation tool that leverages AI to deliver high-qu
     - Local models (via LM Studio or Ollama)
   - Intelligent context handling
   - Translation memory and dictionary
+  - Interpunction spacing verification and fixes
 - Quality Control
   - Automated term base management
   - Quality assurance checks
@@ -180,7 +182,7 @@ Place the downloaded credentials.json file in the config directory.
 
 ## Usage
 
-### Basic Translation
+### Basic Commands
 
 1. Initialize the tool (first time only):
 ```bash
@@ -192,11 +194,23 @@ python -m babelsheet init
 python -m babelsheet translate -t "es,fr,de" -s "your-sheet-id"
 ```
 
-Options:
-- `-t, --target-langs`: Comma-separated list of target languages
+3. Check and fix interpunction spacing:
+```bash
+python -m babelsheet check-spacing -t "es,fr,de" -s "your-sheet-id"
+```
+
+### Command Options
+
+#### Common Options (available for all commands)
 - `-s, --sheet-id`: Google Sheet ID (optional if in config)
 - `-v, --verbose`: Increase verbosity (-v for info, -vv for debug)
-- `-so, --simple-output`: Use simple console output instead of UI
+- `-d, --dry-run`: Run without saving changes to Google Sheets
+
+#### Translation Command Options
+- `-t, --target-langs`: Comma-separated list of target languages
+
+#### Check Spacing Command Options
+- `-t, --target-langs`: Comma-separated list of target languages to check
 
 ### Translation Process
 
@@ -384,20 +398,15 @@ python -m babelsheet translate --sheet-id="your-sheet-id" --target-langs="es,fr,
   - Target language columns (e.g., 'es' for Spanish)
   - Optional context columns (matched by patterns in config)
 
-### Term Base Sheet
-- Must contain these columns:
-  - EN TERM: The English term
-  - COMMENT: Context or usage notes
-  - TRANSLATION_XX: Translation columns (e.g., TRANSLATION_ES for Spanish)
 
 ## Batch Processing
 
 The application supports batch processing of translations to optimize API usage and performance. For best translation quality, we recommend:
-- Batch size: 5-20 rows (default: 10)
+- Batch size: 5-30 rows (default: 10)
 - Configure in config.yaml:
 ```yaml
 llm:
-  batch_size: 10    # Recommended range: 5-20
+  batch_size: 10    # Recommended range: 5-30
   batch_delay: 1    # Delay between batches in seconds
 ```
 
@@ -458,7 +467,6 @@ The tool automatically checks:
    - Consider using a faster LLM provider
 
 4. **UI Issues**
-   - Try simple output mode (-so flag)
    - Check terminal compatibility
    - Verify Python version (3.8+ required)
    - Update dependencies
