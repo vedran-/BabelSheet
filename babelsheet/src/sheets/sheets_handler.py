@@ -47,6 +47,7 @@ class SheetsHandler:
         """Load entire spreadsheet into memory"""
         self.current_spreadsheet_id = spreadsheet_id
         self.ctx.ui.info(f"Loading entire spreadsheet <b>{spreadsheet_id}</b>...")
+        skip_sheets_prefixes = self.ctx.config.get('google_sheets', {}).get('skip_sheets_prefixes', [])
         
         try:
             # Get all sheet names
@@ -63,6 +64,10 @@ class SheetsHandler:
 
                 if sheet_name in self._sheets:
                     logger.error(f"Sheet {sheet_name} already loaded, skipping")
+                    continue
+                
+                if any(sheet_name.startswith(prefix) for prefix in skip_sheets_prefixes):
+                    logger.info(f"Skipping sheet {sheet_name}, prefix filter: {skip_sheets_prefixes}")
                     continue
                 
                 # Load sheet data

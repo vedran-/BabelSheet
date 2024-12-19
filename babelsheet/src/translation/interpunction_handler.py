@@ -63,7 +63,7 @@ class InterpunctionHandler:
                     self.ui.info(f"    🔧 [{lang}] `{text}` ➜ `{fixed_text}`")
                     # Log the change
                     with open(self.log_file_name, 'a', encoding='utf-8') as log_file:
-                        log_file.write(f"['{sheet_name}:{lang}:{row_idx}'] `{text}` ➜ `{fixed_text}`\n")
+                        log_file.write(f"[{sheet_name}:{lang}:{row_idx}] `{text}` ➜ `{fixed_text}`\n")
                     fixes_made += 1
 
         # Update sheet if any fixes were made

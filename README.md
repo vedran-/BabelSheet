@@ -123,6 +123,7 @@ google_sheets:
   scopes:
     - "https://www.googleapis.com/auth/spreadsheets"
     - "https://www.googleapis.com/auth/drive.readonly"
+  skip_sheets_prefixes: ["[E] "]  # Skip sheets with this prefix
 
 languages:
   source: "en"                # Source language code
