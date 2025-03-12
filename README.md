@@ -54,7 +54,7 @@ BabelSheet is an automated translation tool that leverages AI to deliver high-qu
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/babelsheet.git
+git clone https://github.com/vedran-/babelsheet.git
 cd babelsheet
 ```
 
