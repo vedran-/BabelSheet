@@ -326,6 +326,16 @@ class QAHandler:
         """Check format consistency between source and translation."""
         issues = []
 
+        # Check newline preservation using normalized counts, allowing 1 line difference
+        if self.config['qa'].get('newline_check', True):
+            def count_newlines(text: str) -> int:
+                """Count newlines in text, handling both \\n and \n"""
+                return text.count('\\n') + text.count('\n')
+            source_newlines = count_newlines(source)
+            trans_newlines = count_newlines(translation)
+            if abs(source_newlines - trans_newlines) > 1:  # Allow difference of 1
+                issues.append(f"Newline count mismatch between source text ({source_newlines} rows) and translation ({trans_newlines} rows). ")
+
         if self.config['qa'].get('remove_html_tags_before_validation', True):
             source = self._remove_html_tags(source)
             translation = self._remove_html_tags(translation)
@@ -348,15 +358,6 @@ class QAHandler:
                 and max(len(word) for word in translation_analysis['all_caps_words']) > 2: # We can ignore words that are 2 characters or less, like I, WC, etc.
                 issues.append(f"Capitalization mismatch: Translation has too many words in ALL CAPS, compared to the source text. Please remove ALL CAPS from the words in the translation that are not in ALL CAPS in the source text.")
         
-        # Check newline preservation using normalized counts, allowing 1 line difference
-        if self.config['qa'].get('newline_check', True):
-            def count_newlines(text: str) -> int:
-                """Count newlines in text, handling both \\n and \n"""
-                return text.count('\\n') + text.count('\n')
-            source_newlines = count_newlines(source)
-            trans_newlines = count_newlines(translation)
-            if abs(source_newlines - trans_newlines) > 1:  # Allow difference of 1
-                issues.append(f"Newline count mismatch between source text ({source_newlines} rows) and translation ({trans_newlines} rows). ")
             
         # Check ending punctuation
         if self.config['qa'].get('ending_punctuation_check', True):

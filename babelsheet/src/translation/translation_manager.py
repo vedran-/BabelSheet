@@ -122,7 +122,7 @@ class TranslationManager:
         This should be called before starting translation of other sheets.
         
         Args:
-            sheet_name: Name of the sheet to ensure translations for
+            sheet_name: Name of the sheet to check
             source_lang: Source language code
             target_langs: List of target language codes
         """

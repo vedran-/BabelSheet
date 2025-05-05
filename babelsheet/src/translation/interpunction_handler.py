@@ -55,7 +55,7 @@ class InterpunctionHandler:
                 text = cell.value if hasattr(cell, 'value') else str(cell)
 
                 # Fix spacing before interpunction marks
-                fixed_text = InterpunctionHandler.fix_interpunction_spacing(text, nbsp_mode)
+                fixed_text = self.fix_interpunction_spacing(text, nbsp_mode)
 
                 # If text was changed, update the cell
                 if fixed_text != text:
@@ -83,8 +83,8 @@ class InterpunctionHandler:
             text: Text to fix
             nbsp_mode: Mode of operation ('unicode', 'html', 'nobr', 'space')
                 - 'unicode': Replace space with unicode non-breaking space
-                - 'html': Replace space with &lt;nbsp&gt; HTML tag
-                - 'nobr': Wrap space and interpunction with &lt;nobr&gt; tag
+                - 'html': Replace space with <nbsp> HTML tag
+                - 'nobr': Wrap space and interpunction with <nobr> tag
                 - 'space': Use regular space (no transformation)
             
         Returns:
