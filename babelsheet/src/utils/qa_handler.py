@@ -151,24 +151,21 @@ class QAHandler:
         return n
 
     @staticmethod
-    def _get_punctuation_sets() -> Dict[str, str]:
-        """Get punctuation marks organized by script type."""
-        return {
-            'latin': ".!?:,",
-            'cjk': "。！？：，｡︕？︓，",
-            'rtl': "؟؛،۔",  # RTL punctuation
-            'ethiopic': "።፧፨፠"  # Ethiopic script punctuation
-        }
-    @staticmethod
     def _get_punctuation_type_sets() -> Dict[str, str]:
-        """Get punctuation marks organized by semantic type."""
+        """Get punctuation marks organized by semantic type. 
+        Ensures characters are uniquely assigned to one category based on common sentence-ending usage.
+        """
         return {
-            'question': "?？؟፧",  # Latin, CJK, Arabic, Ethiopic
-            'exclamation': "!！︕፨",
-            'period': ".。｡።۔",
+            # Latin, Fullwidth CJK, Arabic, Ethiopic, Nko, Armenian, Cham, Vai
+            'question': "?？؟፧߹՞꩝꘏", 
+            # Latin, Fullwidth CJK, Small CJK, Myanmar Shan (2 forms), Armenian (2 forms), Cham
+            'exclamation': "!！︕ႝ႟՜՛꩜",  
+            # Latin, CJK, Halfwidth CJK, Ethiopic, Arabic, Devanagari Danda, Devanagari Double Danda, Vai Full Stop, CJK Vertical
+            'period': ".。｡።۔।॥꘎︒",  
         }
+        
     def _get_ending_punctuation(self, text: str) -> str:
-        """Get the last character if it's a punctuation mark.
+        """Get the last character if it's a punctuation mark relevant to sentence ending type.
         
         Args:
             text: The text to check for ending punctuation
@@ -180,12 +177,13 @@ class QAHandler:
             return ""
         last_char = text.strip()[-1]
         
-        # Combine all punctuation marks
-        all_puncts = ''.join(self._get_punctuation_sets().values())
+        # Combine all punctuation marks from the defined semantic types
+        all_puncts = ''.join(self._get_punctuation_type_sets().values())
         
         if last_char in all_puncts:
             return last_char
         return ""
+        
     def _get_punctuation_type(self, char: str) -> str:
         """Determine the semantic type of a punctuation mark.
         
@@ -200,7 +198,13 @@ class QAHandler:
         for punct_type, chars in punct_types.items():
             if char in chars:
                 return punct_type
+        # If the character was found by _get_ending_punctuation but not categorized here, 
+        # it implies an inconsistency. However, based on the updated logic where 
+        # _get_ending_punctuation uses characters *from* _get_punctuation_type_sets,
+        # this path should theoretically not be hit if char is non-empty.
+        # Returning 'other' remains a safe fallback.
         return "other"
+
     def _validate_ending_punctuation(self, source: str, translation: str) -> List[str]:
         """Validate ending punctuation between source and translation.
         
