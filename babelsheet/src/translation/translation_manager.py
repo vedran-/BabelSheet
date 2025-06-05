@@ -133,10 +133,6 @@ class TranslationManager:
         # Detect missing translations
         missing_translations = self._detect_missing_translations(df, source_lang, target_langs)
         
-        #if len(missing_translations) > 0:
-        #    logger.info(f"[{sheet_name}] Found missing translations for {len(missing_translations)} languages: " + 
-        #               ", ".join(f"{lang} ({len(items)} items)" for lang, items in missing_translations.items()))
-
         if missing_translations and len(missing_translations) > 0:
             # Process all translations and update the DataFrame
             await self._process_missing_translations(df, missing_translations, use_term_base)
@@ -740,7 +736,7 @@ class TranslationManager:
 
             # Update results with LLM validation issues
             for batch_idx, result_idx in enumerate(llm_validation_indexes):
-                llm_issues = llm_results[batch_idx] if len(llm_results) >= batch_idx else ["Invalid JSON response from LLM"]
+                llm_issues = llm_results[batch_idx] if len(llm_results) > batch_idx else ["Invalid JSON response from LLM"]
                 if len(llm_issues) > 0:
                     results[result_idx]["issues"].extend(llm_issues)
         
