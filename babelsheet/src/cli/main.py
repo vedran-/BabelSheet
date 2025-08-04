@@ -150,7 +150,11 @@ def _initialize_context(ctx: click.Context, target_langs: str, sheet_id: str, ve
 
     # Split target languages if provided as comma-separated string
     ctx.config = ctx.obj['config']
-    ctx.target_langs = [lang.strip() for lang in target_langs.split(',')]
+    if target_langs:
+        ctx.target_langs = [lang.strip() for lang in target_langs.split(',')]
+    else:
+        # Use target languages from config
+        ctx.target_langs = ctx.config['languages']['target']
     
     # Set source language if required
     if require_source_lang:
@@ -178,8 +182,8 @@ def _initialize_context(ctx: click.Context, target_langs: str, sheet_id: str, ve
 @click.option(
     '--target-langs',
     '-t',
-    required=True,
-    help='Comma-separated list of target languages (e.g., "fr,es,de")'
+    required=False,
+    help='Comma-separated list of target languages (e.g., "fr,es,de"). If not provided, will use languages from config file.'
 )
 @click.option(
     '--sheet-id',
@@ -203,6 +207,11 @@ def _initialize_context(ctx: click.Context, target_langs: str, sheet_id: str, ve
 @click.pass_context
 def translate_command(ctx, target_langs, sheet_id, verbose, dry_run):
     """Translate missing entries in the specified Google Sheet."""
+    # If target_langs is not provided, use languages from config
+    if not target_langs:
+        target_langs = ','.join(ctx.obj['config']['languages']['target'])
+        logger.info(f"Using target languages from config: {target_langs}")
+    
     error_queue = _initialize_context(ctx, target_langs, sheet_id, verbose)
     ctx.dry_run = dry_run
 
@@ -296,8 +305,8 @@ async def translate(ctx, target_langs, verbose):
 @click.option(
     '--target-langs',
     '-t',
-    required=True,
-    help='Comma-separated list of target languages to check (e.g., "fr,es,de")'
+    required=False,
+    help='Comma-separated list of target languages to check (e.g., "fr,es,de"). If not provided, will use languages from config file.'
 )
 @click.option(
     '--sheet-id',
