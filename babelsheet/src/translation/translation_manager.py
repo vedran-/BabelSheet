@@ -16,6 +16,128 @@ from .translation_prompts import TranslationPrompts
 from .translation_dictionary import TranslationDictionary
 logger = logging.getLogger(__name__)
 
+
+def detect_missing_translations(
+    sheets_handler: SheetsHandler,
+    df: pd.DataFrame,
+    source_lang: str,
+    target_langs: List[str],
+    create_if_missing: bool = True,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Detect missing translations in the DataFrame.
+
+    A row is missing when the source cell is non-empty and the target cell is empty.
+    """
+    source_lang_indexes = sheets_handler.get_column_indexes(df, [source_lang])
+    if not source_lang_indexes:
+        return {}
+    source_lang_idx = source_lang_indexes[0]
+    rows_count = df.shape[0]
+
+    missing_translations = {}
+    for lang in target_langs:
+        lang_indexes = sheets_handler.get_column_indexes(
+            df, [lang], create_if_missing=create_if_missing
+        )
+        if not lang_indexes:
+            continue
+        lang_idx = lang_indexes[0]
+        if lang_idx == source_lang_idx:
+            continue
+
+        lang_missing = []
+        logger.debug(f"Checking {rows_count} rows for language {lang}")
+
+        for row_idx in range(rows_count):
+            source_cell = df.iloc[row_idx][source_lang_idx]
+            if source_cell is None or pd.isna(source_cell) or (
+                hasattr(source_cell, 'is_empty') and source_cell.is_empty()
+            ):
+                logger.debug(
+                    f"Skipping row {row_idx} for language {lang} because source text is empty"
+                )
+                continue
+
+            target_cell = df.iloc[row_idx][lang_idx]
+            if target_cell is None or pd.isna(target_cell) or (
+                hasattr(target_cell, 'is_empty') and target_cell.is_empty()
+            ):
+                if pd.isna(target_cell):
+                    target_cell = CellData(value=None)
+                    df.loc[row_idx, lang_idx] = target_cell
+
+                context = sheets_handler.get_row_context(df, row_idx)
+
+                lang_missing.append({
+                    'sheet_name': df.attrs['sheet_name'],
+                    'row_idx': row_idx,
+                    'col_idx': lang_idx,
+                    'source_text': (
+                        source_cell.value if hasattr(source_cell, 'value') else str(source_cell)
+                    ),
+                    'target_cell': target_cell,
+                    'context': context
+                })
+
+        if lang_missing:
+            missing_translations[lang] = lang_missing
+
+    return missing_translations
+
+
+def scan_missing_translations(
+    sheets_handler: SheetsHandler,
+    source_lang: str,
+    target_langs: List[str],
+    term_base_sheet_name: Optional[str] = None,
+    create_if_missing: bool = False,
+    sheet_callback=None,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Collect all missing translations from all sheets, organized by language."""
+    all_missing_translations = {}
+    sheet_names = sheets_handler.get_sheet_names()
+    total_sheets = len(sheet_names)
+
+    for i, sheet_name in enumerate(sheet_names, 1):
+        if term_base_sheet_name and sheet_name == term_base_sheet_name:
+            continue
+
+        logger.debug(f"Analyzing sheet {i}/{total_sheets}: {sheet_name}")
+
+        df = sheets_handler.get_sheet_data(sheet_name)
+        df.attrs['sheet_name'] = sheet_name
+
+        sheet_missing = detect_missing_translations(
+            sheets_handler, df, source_lang, target_langs, create_if_missing=create_if_missing
+        )
+
+        if sheet_callback and sheet_missing:
+            sheet_callback(i, total_sheets, sheet_name, sheet_missing)
+
+        for lang, items in sheet_missing.items():
+            if lang not in all_missing_translations:
+                all_missing_translations[lang] = []
+            all_missing_translations[lang].extend(items)
+
+    return all_missing_translations
+
+
+def format_missing_by_source(all_missing: Dict[str, List[Dict[str, Any]]]) -> List[str]:
+    """Pivot language-keyed missing translations to source-text lines per sheet."""
+    by_source_sheet: Dict[Tuple[str, str], set] = {}
+    for lang, items in all_missing.items():
+        for item in items:
+            key = (item['source_text'], item['sheet_name'])
+            by_source_sheet.setdefault(key, set()).add(lang)
+
+    return [
+        f'`{source}` [{sheet}]: missing {", ".join(sorted(langs))}'
+        for (source, sheet), langs in sorted(
+            by_source_sheet.items(), key=lambda s: (s[0][1].lower(), s[0][0].lower())
+        )
+    ]
+
+
 class TranslationManager:
     def __init__(self, ctx, sheets_handler: SheetsHandler, qa_handler: QAHandler,
                  term_base_handler: TermBaseHandler, llm_handler: LLMHandler, 
@@ -188,65 +310,17 @@ class TranslationManager:
         self.ui.info(f"Failed translations: {self.stats['failed_translations']} ({100-success_rate:.1f}%)")
         self.ui.info("=" * 80)
 
-    def _detect_missing_translations(self, df: pd.DataFrame, source_lang: str, target_langs: List[str]) -> Dict[str, List[Dict[str, Any]]]:
-        """Detect missing translations in the DataFrame.
-        
-        Args:
-            df: DataFrame containing translations
-            source_lang: Source language code
-            target_langs: List of target language codes
-            
-        Returns:
-            Dictionary mapping language codes to missing translations
-        """
-        source_lang_indexes = self.sheets_handler.get_column_indexes(df, [source_lang])
-        if not source_lang_indexes:
-            return {}
-        source_lang_idx = source_lang_indexes[0]
-        target_langs_idx = self.sheets_handler.get_column_indexes(df, target_langs, create_if_missing=True)
-        rows_count = df.shape[0]
-
-        # Check each target language
-        missing_translations = {}
-        for i in range(len(target_langs)):
-            lang = target_langs[i]
-            lang_idx = target_langs_idx[i]
-            lang_missing = []
-            
-            logger.debug(f"Checking {rows_count} rows for language {lang}")
-
-            # Check each row
-            for row_idx in range(rows_count):
-                source_cell = df.iloc[row_idx][source_lang_idx]
-                # Skip if source text is empty
-                if source_cell is None or pd.isna(source_cell) or (hasattr(source_cell, 'is_empty') and source_cell.is_empty()):
-                    logger.debug(f"Skipping row {row_idx} for language {lang} because source text is empty")
-                    continue
-
-                target_cell = df.iloc[row_idx][lang_idx]
-                # Check if translation is missing or empty
-                if target_cell is None or pd.isna(target_cell) or (hasattr(target_cell, 'is_empty') and target_cell.is_empty()):
-                    if pd.isna(target_cell):
-                        target_cell = CellData(value=None)
-                        df.loc[row_idx, lang_idx] = target_cell
-
-                    context = self.sheets_handler.get_row_context(df, row_idx)
-
-                    lang_missing.append({
-                        'sheet_name': df.attrs['sheet_name'],
-                        'row_idx': row_idx,
-                        'col_idx': lang_idx,
-                        'source_text': source_cell.value if hasattr(source_cell, 'value') else str(source_cell),
-                        'target_cell': target_cell,
-                        'context': context
-                    })
-
-            if len(lang_missing) > 0:
-                if lang not in missing_translations:
-                    missing_translations[lang] = []
-                missing_translations[lang].extend(lang_missing)
-        
-        return missing_translations
+    def _detect_missing_translations(
+        self,
+        df: pd.DataFrame,
+        source_lang: str,
+        target_langs: List[str],
+        create_if_missing: bool = True,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Detect missing translations in the DataFrame."""
+        return detect_missing_translations(
+            self.sheets_handler, df, source_lang, target_langs, create_if_missing=create_if_missing
+        )
 
     async def collect_all_missing_translations(self, source_lang: str, target_langs: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """Collect all missing translations from all sheets, organized by language.
@@ -258,39 +332,29 @@ class TranslationManager:
         Returns:
             Dictionary mapping language codes to lists of missing translations across all sheets
         """
-        all_missing_translations = {}
-        
-        # Get all sheet names
-        sheet_names = self.sheets_handler.get_sheet_names()
-        total_sheets = len(sheet_names)
-        
+        term_base_sheet_name = (
+            self.term_base_handler.sheet_name if self.term_base_handler else None
+        )
+        total_sheets = len(self.sheets_handler.get_sheet_names())
+
         self.ui.debug(f"Collecting missing translations from {total_sheets} sheets...")
-        
-        # Process each sheet
-        for i, sheet_name in enumerate(sheet_names, 1):
-            # Skip term base sheet as it's handled separately
-            if self.term_base_handler and sheet_name == self.term_base_handler.sheet_name:
-                continue
-                
-            logger.debug(f"Analyzing sheet {i}/{total_sheets}: {sheet_name}")
-            
-            # Get the sheet data
-            df = self.sheets_handler.get_sheet_data(sheet_name)
-            df.attrs['sheet_name'] = sheet_name  # Store sheet name in DataFrame attributes
-            
-            # Detect missing translations for this sheet
-            sheet_missing = self._detect_missing_translations(df, source_lang, target_langs)
-            
-            # Report findings for this sheet
-            if sheet_missing:
-                sheet_total = sum(len(items) for items in sheet_missing.values())
-                self.ui.info(f"  [{i}/{total_sheets}] Found <b>{sheet_total}</b> missing translations in sheet `<b>{sheet_name}</b>`: {', '.join(f'<b>{lang}</b> ({len(items)} items)' for lang, items in sheet_missing.items())}")
-            
-            # Merge with all missing translations
-            for lang, items in sheet_missing.items():
-                if lang not in all_missing_translations:
-                    all_missing_translations[lang] = []
-                all_missing_translations[lang].extend(items)
+
+        def report_sheet(i, total, sheet_name, sheet_missing):
+            sheet_total = sum(len(items) for items in sheet_missing.values())
+            self.ui.info(
+                f"  [{i}/{total}] Found <b>{sheet_total}</b> missing translations "
+                f"in sheet `<b>{sheet_name}</b>`: "
+                f"{', '.join(f'<b>{lang}</b> ({len(items)} items)' for lang, items in sheet_missing.items())}"
+            )
+
+        all_missing_translations = scan_missing_translations(
+            self.sheets_handler,
+            source_lang,
+            target_langs,
+            term_base_sheet_name=term_base_sheet_name,
+            create_if_missing=True,
+            sheet_callback=report_sheet,
+        )
 
         # Log final summary
         if all_missing_translations:

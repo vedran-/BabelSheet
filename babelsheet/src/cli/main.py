@@ -13,7 +13,11 @@ from ..utils.auth import get_credentials
 from ..utils.llm_handler import LLMHandler
 from ..utils.qa_handler import QAHandler
 from ..sheets.sheets_handler import SheetsHandler
-from ..translation.translation_manager import TranslationManager
+from ..translation.translation_manager import (
+    TranslationManager,
+    scan_missing_translations,
+    format_missing_by_source,
+)
 from ..translation.translation_dictionary import TranslationDictionary
 from ..translation.interpunction_handler import InterpunctionHandler
 from ..term_base.term_base_handler import TermBaseHandler
@@ -22,6 +26,23 @@ import pandas as pd
 from ..utils.ui_manager import create_ui_manager
 
 logger = logging.getLogger(__name__)
+
+
+class _NoOpUI:
+    """Minimal UI stub for read-only commands that do not need graphical output."""
+
+    def info(self, message: str) -> None:
+        pass
+
+    def debug(self, message: str) -> None:
+        pass
+
+    def warning(self, message: str) -> None:
+        pass
+
+    def error(self, message: str) -> None:
+        pass
+
 
 def load_config(config_path: str) -> Dict[str, Any]:
     """Load configuration from YAML file."""
@@ -177,6 +198,31 @@ def _initialize_context(ctx: click.Context, target_langs: str, sheet_id: str, ve
     ctx.ui = create_ui_manager(ctx, ctx.llm_handler)
 
     return queue.Queue()
+
+def _initialize_context_for_listing(
+    ctx: click.Context, target_langs: str, sheet_id: str, verbose: int
+) -> None:
+    """Initialize context for read-only listing commands (no LLM or graphical UI)."""
+    setup_logging(verbose)
+
+    if sheet_id:
+        ctx.obj['config']['google_sheets']['spreadsheet_id'] = sheet_id
+
+    validate_config(ctx.obj['config'])
+
+    if not ctx.obj['config']['google_sheets']['spreadsheet_id']:
+        raise click.UsageError(
+            "Spreadsheet ID must be provided either in config or via --sheet-id option"
+        )
+
+    ctx.config = ctx.obj['config']
+    if target_langs:
+        ctx.target_langs = [lang.strip() for lang in target_langs.split(',')]
+    else:
+        ctx.target_langs = ctx.config['languages']['target']
+
+    ctx.source_lang = ctx.config['languages']['source']
+    ctx.ui = _NoOpUI()
 
 @cli.command(name='translate')
 @click.option(
@@ -396,6 +442,73 @@ async def check_spacing(ctx, target_langs, verbose):
         logger.error(traceback.format_exc())
         ctx.ui.error(f"<b><font color='red'>Error during check spacing: {str(e)}</font></b>")
         raise
+
+@cli.command(name='list-missing')
+@click.option(
+    '--target-langs',
+    '-t',
+    required=False,
+    help='Comma-separated list of target languages (e.g., "fr,es,de"). If not provided, will use languages from config file.'
+)
+@click.option(
+    '--sheet-id',
+    '-s',
+    required=False,
+    help='Google Sheet ID to process'
+)
+@click.option(
+    '--verbose',
+    '-v',
+    count=True,
+    help='Increase verbosity (use -v for info, -vv for debug)'
+)
+@click.pass_context
+def list_missing_command(ctx, target_langs, sheet_id, verbose):
+    """List source texts that are missing translations (read-only, no LLM)."""
+    if not target_langs:
+        target_langs = ','.join(ctx.obj['config']['languages']['target'])
+        logger.info(f"Using target languages from config: {target_langs}")
+
+    _initialize_context_for_listing(ctx, target_langs, sheet_id, verbose)
+
+    try:
+        list_missing(ctx, verbose)
+    except Exception as e:
+        logger.error(f"Error listing missing translations: {str(e)}")
+        logger.error(traceback.format_exc())
+        sys.exit(1)
+
+def list_missing(ctx, verbose: int = 0):
+    """Scan sheets and print missing translations grouped by source text."""
+    creds = get_credentials()
+    ctx.spreadsheet_id = ctx.config['google_sheets']['spreadsheet_id']
+    ctx.sheets_handler = SheetsHandler(ctx, creds)
+    ctx.sheets_handler.initialize()
+
+    term_base_sheet_name = ctx.config.get('term_base', {}).get('sheet_name')
+
+    def report_sheet(i, total, sheet_name, sheet_missing):
+        sheet_total = sum(len(items) for items in sheet_missing.values())
+        logger.info(
+            f"[{i}/{total}] {sheet_name}: {sheet_total} missing "
+            f"({', '.join(f'{lang} ({len(items)})' for lang, items in sheet_missing.items())})"
+        )
+
+    all_missing = scan_missing_translations(
+        ctx.sheets_handler,
+        ctx.source_lang,
+        ctx.target_langs,
+        term_base_sheet_name=term_base_sheet_name,
+        create_if_missing=False,
+        sheet_callback=report_sheet if verbose else None,
+    )
+
+    lines = format_missing_by_source(all_missing)
+    for line in lines:
+        click.echo(line)
+
+    if verbose:
+        logger.info(f"Total source texts with missing translations: {len(lines)}")
 
 @cli.command()
 @click.pass_context

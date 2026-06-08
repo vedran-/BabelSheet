@@ -144,7 +144,7 @@ translation:
 
 llm:
   api_key: ""       # Your API key for the LLM provider, if needed
-  model: "anthropic/claude-3-5-sonnet-20241022"    # The LLM model to use (e.g., "gpt-4", "claude-3-5-sonnet-20241022")
+  model: "anthropic/claude-sonnet-4-6"    # The LLM model to use (e.g., "gpt-4", "claude-3-5-sonnet-20241022")
   batch_size: 25    # Number of rows to process in a batch
 
   additional_llm_context: "Additional context and instructions for the LLM, like app name and description, company name, etc."
@@ -213,6 +213,17 @@ python -m babelsheet translate -t "es,fr,de" -s "your-sheet-id"
 python -m babelsheet check-spacing -t "es,fr,de" -s "your-sheet-id"
 ```
 
+4. List missing translations (read-only, no LLM, does not modify sheets):
+```bash
+python -m babelsheet list-missing -t "es,de" -s "your-sheet-id"
+```
+
+Example output:
+```
+`HOLD TO SHOOT` [UI]: missing es, de
+`PLAY AGAIN` [UI]: missing de
+```
+
 ### Command Options
 
 #### Common Options (available for all commands)
@@ -225,6 +236,10 @@ python -m babelsheet check-spacing -t "es,fr,de" -s "your-sheet-id"
 
 #### Check Spacing Command Options
 - `-t, --target-langs`: Comma-separated list of target languages to check
+
+#### List Missing Command Options
+- `-t, --target-langs`: Comma-separated list of target languages to check (defaults to config)
+- `-v, --verbose`: Log per-sheet counts to stderr (stdout stays pipe-friendly)
 
 ### Translation Process
 
